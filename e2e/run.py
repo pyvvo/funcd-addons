@@ -136,6 +136,12 @@ def engine(method: str, addr: str, path: str, token: str = "", body=None, form: 
         return 0, b""
 
 
+# A browser's navigation, the only call that funcd's edge redirects to sign in (funcd ADR-0335 Decision 2), and the
+# sign-in's cookies of the provider sso of default over http (Decision 5).
+NAV = {"Sec-Fetch-Mode": "navigate", "Accept": "text/html"}
+STATE_COOKIE, SESSION_COOKIE = "funcd_auth.default.sso", "funcd_session.default.sso"
+
+
 def cookie(headers, name: str) -> str | None:
     for v in headers.get_all("Set-Cookie") or []:
         k, _, rest = v.partition("=")
@@ -156,12 +162,12 @@ def signin(host: str, password: str) -> dict:
     """Signs in through the edge as a browser would: the redirect, rauthy's login (a session, the proof of work, the
     login post, as rauthy's own tests do), the callback, and the first call with the session."""
     t0 = time.monotonic()
-    st, h, _ = edge("GET", host, "/")
+    st, h, _ = edge("GET", host, "/", NAV)
     if st != 302:
         return {"error": f"want a redirect, got {st}"}
     auth = urllib.parse.urlsplit(h["Location"])
     q = dict(urllib.parse.parse_qsl(auth.query))
-    state = cookie(h, "funcd_auth")
+    state = cookie(h, STATE_COOKIE)
     _, h, body = edge("POST", IDP, "/auth/v1/oidc/session")
     sess = h["Set-Cookie"].split(";", 1)[0]
     csrf = json.loads(body)["csrf_token"]
@@ -176,11 +182,11 @@ def signin(host: str, password: str) -> dict:
     if st != 202:
         return {"error": f"login: {st} {body[:200]!r}"}
     cb = urllib.parse.urlsplit(h["Location"])
-    st, h, body = edge("GET", host, cb.path + "?" + cb.query, {"Cookie": f"funcd_auth={state}"})
+    st, h, body = edge("GET", host, cb.path + "?" + cb.query, {"Cookie": f"{STATE_COOKIE}={state}"})
     if st != 302:
         return {"error": f"callback: {st} {body[:200]!r}"}
-    session = cookie(h, "funcd_session")
-    st, h, body = edge("GET", host, h["Location"], {"Cookie": f"funcd_session={session}"})
+    session = cookie(h, SESSION_COOKIE)
+    st, h, body = edge("GET", host, h["Location"], {"Cookie": f"{SESSION_COOKIE}={session}"})
     return {"status": st, "echo": body.decode(), "session": session, "s": time.monotonic() - t0, "pow_s": pow_s}
 
 
@@ -451,7 +457,7 @@ def token_probe(client_id: str, secret: str) -> str:
 
 
 def f261_signin(password: str) -> None:
-    st, h, _ = edge("GET", APP, "/")
+    st, h, _ = edge("GET", APP, "/", NAV)
     loc = urllib.parse.urlsplit(h.get("Location", ""))
     q = dict(urllib.parse.parse_qsl(loc.query))
     sso = status("oidcproviders", "sso")
@@ -475,11 +481,15 @@ def f261_signin(password: str) -> None:
           and principal.get("provider") == "sso" and principal.get("claims", {}).get("sub") == claims.get("sub"),
           f"{len(ok)}/{len(runs)} sign-ins; Name {echoed(echo, 'X-Funcd-Principal-Name')}; ID token {alg}; {runs[0].get('error', '')}")
     session = first.get("session", "")
-    forged = {"Cookie": f"funcd_session={session}", "X-Funcd-Principal-Id": "mallory", "X-Funcd-Principal": b64('{"provider":"x"}')}
+    forged = {"Cookie": f"{SESSION_COOKIE}={session}", "X-Funcd-Principal-Id": "mallory", "X-Funcd-Principal": b64('{"provider":"x"}')}
     st, _, body = edge("GET", APP, "/", forged)
     e = body.decode()
     check("F261: a caller's own principal headers are replaced by the edge's",
           st == 200 and echoed(e, "X-Funcd-Principal-Id") == claims.get("sub") and "mallory" not in e, f"{st}, Id {echoed(e, 'X-Funcd-Principal-Id')}")
+    # A Bearer token signs a call in only for an audience the OIDCProvider names: here its own client's ID tokens.
+    apply(write("oidcprovider-audiences.yaml", (MAN / "oidcprovider.yaml").read_text().replace(
+        "  addon: login\n", f"  addon: login\n  audiences:\n    - \"{sso.get('clientId')}\"\n")))
+    wait(lambda: edge("GET", APP, "/", {"Authorization": f"Bearer {idt}"})[0] == 200, 30, 0.2)
     st, _, body = edge("GET", APP, "/", {"Authorization": f"Bearer {idt}"})
     st2, h2, _ = edge("GET", APP, "/", {"Authorization": f"Bearer {idt[:-4]}AAAA"})
     check("F261: a valid Bearer token passes and a forged one gets 401",
@@ -493,13 +503,14 @@ def f261_signin(password: str) -> None:
         st, _, body = edge("GET", APP, "/")
         check(f"F261: unauthenticated: {mode} gives {want}", st == want and (mode == "401" or "X-Funcd-Principal" not in body.decode()), st)
     apply(MAN / "echo-oidc.yaml")
-    wait(lambda: edge("GET", APP, "/")[0] == 302, 15, 0.2)
-    st, h, _ = edge("GET", APP, "/.auth/logout", {"Cookie": f"funcd_session={session}"})
-    check("F261: /.auth/logout clears the session", st == 302 and "funcd_session=;" in (h.get("Set-Cookie") or ""), h.get("Set-Cookie"))
+    wait(lambda: edge("GET", APP, "/", NAV)[0] == 302, 15, 0.2)
+    st, h, _ = edge("GET", APP, "/.auth/logout", {"Cookie": f"{SESSION_COOKIE}={session}"})
+    cleared = "; ".join(h.get_all("Set-Cookie") or [])
+    check("F261: /.auth/logout clears the session", st == 302 and f"{SESSION_COOKIE}=;" in cleared, cleared)
     apply(write("echo-plain.yaml", manifest("EchoService", "plain", "  ingress:\n    host: plain.localhost\n")))
     phase("echoservices", "plain", "Ready", 60)
     batches = {}
-    for host, hdr in ((f"plain.localhost:{GPORT}", {}), (APP, {"Cookie": f"funcd_session={session}"})):
+    for host, hdr in ((f"plain.localhost:{GPORT}", {}), (APP, {"Cookie": f"{SESSION_COOKIE}={session}"})):
         c = http.client.HTTPConnection("127.0.0.1", GPORT, timeout=30)
         edge("GET", host, "/", hdr, conn=c)
         per = []
@@ -533,6 +544,7 @@ def f262_keep(data: dict, password: str) -> None:
     check("F262: a new host's callback reaches the client's redirect URIs",
           bool(v) and sorted(at.get("redirect_uris", [])) == sorted(status("oidcproviders", "sso")["callbacks"]),
           f"after {round(took, 1)} s: {at.get('redirect_uris')}")
+    phase("echoservices", "echo-ip", "Ready", 60)
     r = signin(f"127.0.0.1:{GPORT}", password)
     check("F261: a second host signs in with the same provider", r.get("status") == 200, r.get("error", r.get("status")))
     before = status("oidcproviders", "sso").get("clientId")
@@ -542,7 +554,7 @@ def f262_keep(data: dict, password: str) -> None:
     v, _ = wait(lambda: (c := status("oidcproviders", "sso").get("clientId")) != before and c, 120, 0.5)
     timing("reregister", "a restore that loses funcd's client until funcd registered a new one (spike: polled every 10 s)",
            [time.monotonic() - t0] if v else [])
-    wait(lambda: edge("GET", APP, "/")[0] == 302, 30, 0.5)
+    wait(lambda: edge("GET", APP, "/", NAV)[0] == 302, 30, 0.5)
     r = signin(APP, password)
     check("F262: funcd registers again when rauthy lost its client, and sign-in works", bool(v) and r.get("status") == 200,
           f"client {before} then {v}; sign-in {r.get('status', r.get('error'))}")

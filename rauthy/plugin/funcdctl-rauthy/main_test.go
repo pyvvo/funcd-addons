@@ -66,6 +66,16 @@ func TestURLsReadTheIdentityProvidersConfig(t *testing.T) {
 		!strings.Contains(out.String(), "admin:   https://login.example.com/auth/v1/admin") {
 		t.Fatalf("unexpected URLs:\n%s", out.String())
 	}
+	for _, args := range [][]string{{"login", "-n", "team"}, {"-n", "team", "login"}} {
+		if err := urls(args, &bytes.Buffer{}); err != nil {
+			t.Fatalf("urls %v: %v", args, err)
+		}
+	}
+	for _, args := range [][]string{{}, {"-n", "team"}, {"login", "other"}} {
+		if err := urls(args, &bytes.Buffer{}); err == nil {
+			t.Fatalf("urls %v: want an error, one IdentityProvider", args)
+		}
+	}
 }
 
 func TestRandomIsAlphanumericOfItsLength(t *testing.T) {

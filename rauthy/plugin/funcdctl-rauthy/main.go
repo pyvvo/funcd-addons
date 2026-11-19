@@ -132,15 +132,22 @@ func keys(args []string, out io.Writer) error {
 func urls(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("urls", flag.ContinueOnError)
 	ns := fs.String("n", "default", "the namespace")
+	// The name may come before the flags, as funcdctl's own commands take it: urls login -n default.
+	var name string
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		name, args = args[0], args[1:]
+	}
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if fs.NArg() != 1 {
+	if name == "" && fs.NArg() == 1 {
+		name = fs.Arg(0)
+	} else if name == "" || fs.NArg() != 0 {
 		return errors.New("name one IdentityProvider")
 	}
-	raw, err := exec.Command(funcdctl(), "get", "identityprovider", fs.Arg(0), "-n", *ns, "-o", "json").Output()
+	raw, err := exec.Command(funcdctl(), "get", "identityprovider", name, "-n", *ns, "-o", "json").Output()
 	if err != nil {
-		return fmt.Errorf("get the IdentityProvider %s/%s: %w", *ns, fs.Arg(0), err)
+		return fmt.Errorf("get the IdentityProvider %s/%s: %w", *ns, name, err)
 	}
 	var idp struct {
 		Spec struct {

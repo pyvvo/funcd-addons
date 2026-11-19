@@ -29,7 +29,8 @@ func TestManifests(t *testing.T) {
 	}
 	var docs []doc
 	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() && strings.HasPrefix(d.Name(), ".") && path != "." {
+		// work/ is the e2e's untracked output, which holds manifests it refuses on purpose.
+		if err != nil || d.IsDir() && (strings.HasPrefix(d.Name(), ".") && path != "." || path == "work") {
 			if d != nil && d.IsDir() {
 				return filepath.SkipDir
 			}
