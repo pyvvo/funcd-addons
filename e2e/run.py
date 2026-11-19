@@ -192,14 +192,21 @@ def echoed(echo: str, header: str) -> str | None:
     return None
 
 
+def engine_of(name: str, fmt: str = "{{.Names}}") -> str:
+    """The container of the IdentityProvider name's engine under dev, by its labels (funcd ADR-0334 Decision 6)."""
+    out = docker("ps", "-a", "--no-trunc", "--filter", "label=funcd/role=engine", "--filter", f"label=funcd/name={name}",
+                 "--format", fmt).stdout.split()
+    return out[0] if out else ""
+
+
 def engine_id() -> str:
     """The container now running the IdentityProvider login's engine."""
-    return docker("inspect", "--format", "{{.Id}}", "funcd-dev-addon-default-login").stdout.strip()
+    return engine_of("login", "{{.ID}}")
 
 
 def snapshot_files() -> list[int]:
     """The timestamps in the names of rauthy's snapshots, from its engine's snapshot folder."""
-    cp = subprocess.run(["docker", "--host", DOCKER, "cp", "funcd-dev-addon-default-login:/app/data/state_machine/backups", "-"],
+    cp = subprocess.run(["docker", "--host", DOCKER, "cp", engine_of("login") + ":/app/data/state_machine/backups", "-"],
                         capture_output=True)
     names = subprocess.run(["tar", "tf", "-"], input=cp.stdout, capture_output=True).stdout.decode()
     return sorted(int(m) for m in re.findall(r"backup_node_1_(\d+)\.sqlite$", names, re.M))
@@ -325,14 +332,13 @@ def f260_run() -> None:
     for i in range(1, SAMPLES):
         name = f"ready-{i}"
         spec = (MAN / "identityprovider.yaml").read_text().replace("name: login", f"name: {name}").replace(
-            "host: login.localhost", f"host: {name}.localhost")
+            "host: login.localhost", f"host: {name}.localhost").replace("spec:\n", "spec:\n  deletion: delete\n")
         apply(write(f"{name}.yaml", spec))
         t = phase("identityproviders", name, "Ready", 120)
         if t:
             samples.append(t)
         ctl("delete", "identityprovider", name, "-n", "default")
-        wait(lambda: not docker("ps", "-aq", "--filter", f"name=funcd-dev-addon-default-{name}").stdout.strip(), 30)
-        docker("volume", "rm", f"funcd-dev-addon-default-{name}")
+        wait(lambda: not engine_of(name), 30)
     timing("rauthy-ready", "an IdentityProvider applied until Ready, on a new volume (rauthy's first start)", samples)
     rc, out = ctl("get", "identityproviders", "-n", "default")
     check("F258: funcdctl lists the add-on's kind with no code for it", rc == 0 and "login" in out, out)
@@ -348,7 +354,7 @@ def f260_run() -> None:
     check("F260: a second add-on (whoami) runs with no code for it", t is not None and st == 200 and b"Hostname" in body,
           f"Ready after {t and round(t, 2)} s, GET / {st}")
     stats = docker("stats", "--no-stream", "--format", "{{.Name}} {{.MemUsage}}").stdout
-    mem = dict(re.findall(r"funcd-dev-addon-default-(\w+) ([\d.]+)MiB", stats))
+    mem = dict(re.findall(r"funcd-dev-addon-[0-9a-f]+-default-(\w+) ([\d.]+)MiB", stats))
     for name, what in (("login", "rauthy"), ("echo", "whoami")):
         if name in mem:
             measure(f"{what}-memory", f"{what}'s container memory once Ready", "MiB", [float(mem[name])])
