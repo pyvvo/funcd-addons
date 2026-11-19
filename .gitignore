@@ -1,0 +1,6 @@
+.DS_Store
+.direnv/
+# scripts/agent/d's cached dev-shell environment, and the e2e's build and logs
+.cache/
+work/
+__pycache__/
