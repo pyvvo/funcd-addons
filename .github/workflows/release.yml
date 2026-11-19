@@ -1,0 +1,83 @@
+name: Release
+
+# release-please keeps a release PR open on main. Merging it tags v<version>; then the CI and the e2e run on that tag,
+# and each add-on's addon.yaml (as <addon>.yaml) and each plugin, for Linux and macOS, are attached to the release.
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      # A PR opened with GITHUB_TOKEN triggers no workflows. A token from the funcd release GitHub App does; until the
+      # app is configured for this repository, release-please falls back to GITHUB_TOKEN.
+      - id: app-token
+        if: vars.RELEASE_APP_CLIENT_ID != ''
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
+
+      - id: release
+        uses: googleapis/release-please-action@v5
+        with:
+          token: ${{ steps.app-token.outputs.token || github.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  check:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    permissions:
+      contents: read
+      actions: write
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.release-please.outputs.tag_name }}
+
+  assets:
+    needs:
+      - release-please
+      - check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Build the plugins and collect the Addons
+        run: |
+          set -euo pipefail
+          for p in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            nix develop --command just plugins "${p%/*}" "${p#*/}"
+          done
+          mkdir -p release
+          for d in */addon.yaml; do cp "$d" "release/$(dirname "$d").yaml"; done
+          for f in dist/*/*; do
+            tar -czf "release/$(basename "$f")-$(basename "$(dirname "$f")").tar.gz" -C "$(dirname "$f")" "$(basename "$f")"
+          done
+          (cd release && sha256sum * > SHA256SUMS)
+
+      - name: Attach them to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ needs.release-please.outputs.tag_name }}" release/* --clobber
