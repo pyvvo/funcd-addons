@@ -10,10 +10,11 @@ serves it at the edge, and copies its data into the namespace's backups.
 
 ## Register one
 
-An admin applies the add-on's `addon.yaml` from a release, which pins its engine image by digest:
+An admin applies the add-on's `addon.yaml` from a release, which pins its engine image by digest, piped to
+`funcdctl apply -f -`:
 
 ```sh
-funcdctl apply -f https://github.com/pyvvo/funcd-addons/releases/download/v0.1.0/rauthy.yaml
+curl -fsSL https://github.com/pyvvo/funcd-addons/releases/download/v0.1.0/rauthy.yaml | funcdctl apply -f -
 ```
 
 funcd accepts an image only from the registries its `addons.registries` key lists. Each add-on's README shows its
