@@ -32,11 +32,11 @@ func TestArgon2idIsAPHCStringOfThePassword(t *testing.T) {
 func TestKeysPrintsEverySecretKey(t *testing.T) {
 	t.Parallel()
 	var out bytes.Buffer
-	if err := keys([]string{"--admin-email", "admin@example.com", "--print", "--name", "k", "-n", "team"}, &out); err != nil {
+	if err := keys([]string{"--admin-email", "admin@example.com", "--print", "--name", "k", "-n", "team", "--resource-group", "idp"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	s := out.String()
-	for _, k := range []string{keyRaft, keyAPI, keyEncKeys, keyEncActive, keyAdminEmail, keyAdminPassword, "name: k", "namespace: team"} {
+	for _, k := range []string{keyRaft, keyAPI, keyEncKeys, keyEncActive, keyAdminEmail, keyAdminPassword, "name: k", "namespace: team", "resourceGroup: idp"} {
 		if !strings.Contains(s, k) {
 			t.Errorf("the Secret lacks %s:\n%s", k, s)
 		}

@@ -9,7 +9,8 @@ spec:
     publicHost: login.localhost:18091
     rpId: login.localhost
     https: false
-  secrets:
-    - rauthy-keys
+  bindings:
+    secret:
+      - rauthy-keys
   ingress:
     host: login.localhost

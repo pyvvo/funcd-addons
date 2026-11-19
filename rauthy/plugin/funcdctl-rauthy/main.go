@@ -68,7 +68,7 @@ func main() {
 func usage(w io.Writer) {
 	fmt.Fprint(w, `funcdctl rauthy: the rauthy add-on's commands
 
-  funcdctl rauthy keys --admin-email <email> [--name rauthy-keys] [-n default] [--print]
+  funcdctl rauthy keys --admin-email <email> [--name rauthy-keys] [-n default] [--resource-group default] [--print]
       Apply a Secret with new cluster and encryption keys and a first admin, and print the admin's password once.
   funcdctl rauthy urls <identityprovider> [-n default]
       Print the IdentityProvider's issuer, account and admin URLs.
@@ -79,6 +79,7 @@ func keys(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("keys", flag.ContinueOnError)
 	name := fs.String("name", "rauthy-keys", "the Secret's name")
 	ns := fs.String("n", "default", "the namespace")
+	group := fs.String("resource-group", "default", "the Secret's resource group")
 	email := fs.String("admin-email", "", "the first admin's email")
 	printOnly := fs.Bool("print", false, "print the Secret instead of applying it")
 	if err := fs.Parse(args); err != nil {
@@ -114,7 +115,7 @@ func keys(args []string, out io.Writer) error {
 	}
 	data[keyEncKeys] = kid + "/" + base64.StdEncoding.EncodeToString(enc)
 	data[keyEncActive] = kid
-	manifest := secretManifest(*name, *ns, data)
+	manifest := secretManifest(*name, *ns, *group, data)
 	if *printOnly {
 		_, err := out.Write(manifest)
 		return err
@@ -170,9 +171,10 @@ func funcdctl() string {
 }
 
 // secretManifest is a Secret of data, in block-style YAML, each value base64 as a Secret's data holds it.
-func secretManifest(name, ns string, data map[string]string) []byte {
+func secretManifest(name, ns, group string, data map[string]string) []byte {
 	var b bytes.Buffer
-	fmt.Fprintf(&b, "apiVersion: funcd.io/v1alpha1\nkind: Secret\nmetadata:\n  name: %s\n  namespace: %s\nspec:\n  data:\n", name, ns)
+	fmt.Fprintf(&b, "apiVersion: funcd.io/v1alpha1\nkind: Secret\nmetadata:\n  name: %s\n  namespace: %s\n  resourceGroup: %s\nspec:\n  data:\n",
+		name, ns, group)
 	for _, k := range []string{keyRaft, keyAPI, keyEncKeys, keyEncActive, keyAdminEmail, keyAdminPassword} {
 		fmt.Fprintf(&b, "    %s: %s\n", k, base64.StdEncoding.EncodeToString([]byte(data[k])))
 	}
