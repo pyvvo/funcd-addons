@@ -334,6 +334,14 @@ def f260_run() -> None:
     apply(MAN / "identityprovider.yaml")
     took = phase("identityproviders", "login", "Ready", 120)
     check("F260: rauthy's engine runs on Docker and turns Ready", took is not None, status("identityproviders", "login").get("conditions"))
+    # rauthy refuses an origin with no port, so the Addon adds the scheme's own when publicHost names none.
+    apply(write("noport.yaml", (MAN / "identityprovider.yaml").read_text().replace("name: login", "name: noport").replace(
+        "publicHost: login.localhost:18091", "publicHost: noport.localhost").replace("rpId: login.localhost", "rpId: noport.localhost").replace(
+        "host: login.localhost", "host: noport.localhost").replace("spec:\n", "spec:\n  deletion: delete\n")))
+    check("rauthy turns Ready with a publicHost that names no port", phase("identityproviders", "noport", "Ready", 120) is not None,
+          status("identityproviders", "noport").get("conditions"))
+    ctl("delete", "identityprovider", "noport", "-n", "default")
+    wait(lambda: not engine_of("noport"), 30)
     samples = [took] if took else []
     for i in range(1, SAMPLES):
         name = f"ready-{i}"
