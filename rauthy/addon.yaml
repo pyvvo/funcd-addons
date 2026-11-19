@@ -36,7 +36,7 @@ spec:
     LISTEN_SCHEME: http
     PUB_URL: ${{ config.publicHost }}
     RP_ID: ${{ config.rpId }}
-    RP_ORIGIN: '${{ (config.https ? "https://" : "http://") + config.publicHost }}'
+    RP_ORIGIN: '${{ (config.https ? "https://" : "http://") + config.publicHost + (config.publicHost.includes(":") ? "" : (config.https ? ":443" : ":80")) }}'
     COOKIE_MODE: '${{ config.https ? "host" : "danger-insecure" }}'
     PROXY_MODE: '${{ config.https ? "true" : "false" }}'
     TRUSTED_PROXIES: |-
