@@ -395,25 +395,28 @@ def f259_backup() -> tuple[str, str]:
         text = out.stdout + out.stderr
         return text if "final place" in text or "Cannot remove old data dir" in text else None
 
+    # A Restore succeeds once rauthy is back without the copy: funcd starts the engine with restore.env, then again
+    # without it, under the namespace hold (funcd ADR-0333 Decision 4). The engine that loads the copy is read while
+    # the Restore runs, before the second start replaces it.
     for i in range(1, SAMPLES + 1):
         c0 = engine_id()
+        t0 = time.monotonic()
         apply(restore(f"login-restore-{i}"), ADMIN_TOKEN)
+        c1, _ = wait(lambda: (c := engine_id()) and c != c0 and c, 120, 0.1)  # the engine that starts with restore.env
+        if c1 and not start_log:
+            start_log = wait(lambda: logged(c1), 30, 0.2)[0] or ""
         t = phase("restores", f"login-restore-{i}", "Succeeded", 180)
         if t is None:
             check(f"F259: Restore {i} succeeds", False, status("restores", f"login-restore-{i}").get("conditions"))
             break
-        restore_s.append(t)
-        t0 = time.monotonic()
-        c1, _ = wait(lambda: (c := engine_id()) and c != c0 and c, 60, 0.1)  # the engine that starts with restore.env
-        if c1 and not start_log:
-            start_log = wait(lambda: logged(c1), 30, 0.2)[0] or ""
-        c2, _ = wait(lambda: (c := engine_id()) and c not in (c0, c1) and c, 120, 0.1)  # the engine without it
-        back, _ = wait(lambda: c2 and answers(), 60, 0.1)
+        c2 = engine_id()  # the engine without restore.env
+        back, _ = wait(lambda: c2 not in (c0, c1) and answers(), 60, 0.1)
+        restore_s.append(time.monotonic() - t0)
         back_s.append(time.monotonic() - t0)
         if kept is None and back:
             kept = (engine("GET", back, f"/auth/v1/clients_dyn/{a_id}", a_tok)[0], engine("GET", back, f"/auth/v1/clients_dyn/{b_id}", b_tok)[0])
-    timing("restore", "an in-place Restore of the IdentityProvider applied until Succeeded", restore_s)
-    timing("restore-engine-back", "a Restore's Succeeded until rauthy answers again after its two restarts, with restore.env and then without", back_s)
+    timing("restore", "an in-place Restore of the IdentityProvider applied until Succeeded, its two restarts included", restore_s)
+    timing("restore-engine-back", "a Restore applied until rauthy answers again after its two restarts, with restore.env and then without", back_s)
     check("F259: the restore brings rauthy back to the backup (a client from before kept, one from after gone)",
           kept == (200, 404), f"before the backup: {kept and kept[0]}, after it: {kept and kept[1]}")
     return a_id, start_log
@@ -428,7 +431,8 @@ def f262_register() -> dict:
     data = secret_data("sso")
     check("F262: funcd registers its client at rauthy, through the engine's address", took is not None and st.get("clientId")
           and sorted(data) == ["CLIENT_ID", "CLIENT_SECRET", "REGISTRATION_ACCESS_TOKEN", "REGISTRATION_CLIENT_URI"],
-          f"clientId {st.get('clientId')}, callbacks {st.get('callbacks')}, Secret keys {sorted(data)}")
+          f"clientId {st.get('clientId')}, callbacks {st.get('callbacks')}, Secret keys {sorted(data)}, "
+          f"conditions {st.get('conditions')}")
     return data
 
 

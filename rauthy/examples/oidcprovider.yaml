@@ -5,7 +5,7 @@ metadata:
   namespace: default
   resourceGroup: default
 spec:
-  issuer: https://login.example.com/auth/v1
+  issuer: https://login.example.com/auth/v1/
   addon: login
   client:
     registration: {}

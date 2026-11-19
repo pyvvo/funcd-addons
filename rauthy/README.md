@@ -37,7 +37,8 @@ default, `retain`, keeps it for a new object of the same name).
 
 An [`OIDCProvider`](examples/oidcprovider.yaml) with `client.registration` has funcd register the edge's client at
 rauthy, and its `addon`, naming the IdentityProvider, has funcd reach rauthy at its own address: the registration path,
-`/auth/v1/clients_dyn`, is never served at the edge. A
+`/auth/v1/clients_dyn`, is never served at the edge. Its `issuer` is rauthy's own, with the trailing slash that
+`funcdctl rauthy urls` prints, such as `https://login.example.com/auth/v1/`. A
 Route, a workload's address or a namespace with `auth.mode: oidc` and `auth.provider: <name>` then signs its callers
 in, and the code behind it reads who they are from the `X-Funcd-Principal` headers.
 
