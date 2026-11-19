@@ -1,0 +1,14 @@
+apiVersion: funcd.io/v1alpha1
+kind: IdentityProvider
+metadata:
+  name: login
+  namespace: default
+spec:
+  config:
+    publicHost: login.example.com
+    rpId: login.example.com
+    https: true
+  secrets:
+    - rauthy-keys
+  ingress:
+    host: login.example.com

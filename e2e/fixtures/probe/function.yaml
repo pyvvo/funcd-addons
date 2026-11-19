@@ -1,0 +1,10 @@
+apiVersion: funcd.io/v1alpha1
+kind: Function
+metadata:
+  name: probe
+  namespace: default
+  resourceGroup: rg1
+spec:
+  runtime: nodejs22
+  handler: handle
+  image: oci-layout:///mnt/funcd-deps/registry:probe

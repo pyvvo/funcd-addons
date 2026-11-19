@@ -1,0 +1,9 @@
+apiVersion: funcd.io/v1alpha1
+kind: EchoService
+metadata:
+  name: echo
+  namespace: default
+  resourceGroup: rg1
+spec:
+  ingress:
+    host: localhost

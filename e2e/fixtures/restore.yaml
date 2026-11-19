@@ -1,0 +1,25 @@
+apiVersion: funcd.io/v1alpha1
+kind: Secret
+metadata:
+  name: backups-identity
+  namespace: default
+  resourceGroup: rg1
+spec:
+  data:
+    AGE_IDENTITY: QUdFLVNFQ1JFVC1LRVktMVJDMDc4NU0wNkRaSjg0RzVNSFVNV1pUR0ZNVllRNDk0SjRERDVKOVg4TExTOVMwTDdFMlFKNzVTUTU=
+---
+apiVersion: funcd.io/v1alpha1
+kind: Restore
+metadata:
+  name: login-restore
+  namespace: default
+  resourceGroup: rg1
+spec:
+  backup: login-now
+  source:
+    credentialsSecret: backups-key
+    identitySecret: backups-identity
+  members:
+    - kind: IdentityProvider
+      name: login
+      inPlace: true

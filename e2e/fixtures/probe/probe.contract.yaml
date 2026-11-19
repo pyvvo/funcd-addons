@@ -1,0 +1,5 @@
+runtime: nodejs22
+input:
+  type: object
+output:
+  type: object

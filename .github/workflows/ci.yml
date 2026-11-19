@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  merge_group:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
+
+# actions:write lets cache-nix-action list, save and purge its store caches.
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Cache Nix store
+        uses: nix-community/cache-nix-action@v7
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock', 'flake.nix') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-
+          gc-max-store-size-linux: 5G
+
+      - name: Check the manifests, build and test the plugins
+        run: nix develop --command just ci
+
+  # Each add-on under funcdctl dev on the runner's Docker, at the funcd that e2e/funcd.ref pins.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Cache Nix store
+        uses: nix-community/cache-nix-action@v7
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock', 'flake.nix') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-
+          gc-max-store-size-linux: 5G
+
+      - name: Cache Go builds
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum', 'e2e/funcd.ref') }}
+          restore-keys: go-${{ runner.os }}-
+
+      - name: Run the add-ons under funcdctl dev
+        env:
+          FUNCD_DEV_DOCKER_HOST: unix:///var/run/docker.sock
+        run: nix develop --command just e2e
+
+      - name: Keep the e2e's logs
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: e2e-logs
+          path: work/logs/

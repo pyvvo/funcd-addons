@@ -1,0 +1,66 @@
+apiVersion: funcd.io/v1alpha1
+kind: Addon
+metadata:
+  name: rauthy
+spec:
+  kind: IdentityProvider
+  image: ghcr.io/pyvvo/funcd-rauthy@sha256:7686fef5edcb27399e23f8386fecb03b13f909966d2c3c4708095e2c31ccfe2d
+  runtimes:
+    - containerd
+  port: 8080
+  basePath: /auth/v1
+  privatePaths:
+    - /auth/v1/clients_dyn
+  readiness:
+    path: /auth/v1/ping
+  storage:
+    path: /app/data
+    uid: 10001
+    gid: 10001
+  config:
+    type: object
+    additionalProperties: false
+    properties:
+      publicHost:
+        type: string
+      rpId:
+        type: string
+      https:
+        type: boolean
+    required:
+      - publicHost
+      - rpId
+      - https
+  env:
+    HQL_NODE_ID: "1"
+    LISTEN_SCHEME: http
+    PUB_URL: ${{ config.publicHost }}
+    RP_ID: ${{ config.rpId }}
+    RP_ORIGIN: '${{ (config.https ? "https://" : "http://") + config.publicHost }}'
+    COOKIE_MODE: '${{ config.https ? "host" : "danger-insecure" }}'
+    PROXY_MODE: '${{ config.https ? "true" : "false" }}'
+    TRUSTED_PROXIES: |-
+      10.0.0.0/8
+      172.16.0.0/12
+      192.168.0.0/16
+      127.0.0.1/32
+    HQL_BACKUP_CRON: "0 */15 * * * * *"
+    ENABLE_DYN_CLIENT_REG: "true"
+    DYN_CLIENT_SECRET_AUTO_ROTATE: "false"
+    DYN_CLIENT_RATE_LIMIT_REG: 1s
+    DYN_CLIENT_CLEANUP: 90d
+    DYN_CLIENT_CLEANUP_INACTIVE_THRESHOLD: 90d
+  secretKeys:
+    - HQL_SECRET_RAFT
+    - HQL_SECRET_API
+    - ENC_KEYS
+    - ENC_KEY_ACTIVE
+    - BOOTSTRAP_ADMIN_EMAIL
+    - BOOTSTRAP_ADMIN_PASSWORD_ARGON2ID
+    - BOOTSTRAP_ADMIN_PASSWORD_PLAIN
+  snapshot:
+    path: /app/data/state_machine/backups
+  restore:
+    path: /app/data/restore
+    env:
+      HQL_BACKUP_RESTORE: ${{ "file:" + restore.file }}

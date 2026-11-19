@@ -1,0 +1,26 @@
+apiVersion: funcd.io/v1alpha1
+kind: OIDCProvider
+metadata:
+  name: sso
+  namespace: default
+spec:
+  issuer: https://login.example.com/auth/v1
+  addon: login
+  client:
+    registration: {}
+  sessionSecret: sso-session
+---
+apiVersion: funcd.io/v1alpha1
+kind: Route
+metadata:
+  name: app
+  namespace: default
+spec:
+  host: app.example.com
+  auth:
+    mode: oidc
+    provider: sso
+  rules:
+    - path: /
+      backend:
+        function: app
