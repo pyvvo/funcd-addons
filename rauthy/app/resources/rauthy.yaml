@@ -1,0 +1,30 @@
+secrets:
+  - name: ${{ values.keys }}
+    keys:
+      - BOOTSTRAP_API_KEY_SECRET
+addons:
+  - name: ${{ app.name + "-login" }}
+    kind: IdentityProvider
+    config:
+      publicHost: '${{ values.publicHost !== "" ? values.publicHost : values.host }}'
+      rpId: ${{ values.host }}
+      https: ${{ values.https }}
+    bindings:
+      secret:
+        - ${{ values.keys }}
+    ingress:
+      host: ${{ values.host }}
+    functions:
+      - kind: RauthyPasswordPolicy
+        ref: ${{ app.name + "-settings" }}
+functions:
+  - name: ${{ app.name + "-settings" }}
+    runtime: nodejs22
+    handler: reconcile
+    image: ${{ images.settings }}
+    bindings:
+      addon:
+        - alias: idp
+          object: ${{ app.name + "-login" }}
+      secret:
+        - ${{ values.keys }}

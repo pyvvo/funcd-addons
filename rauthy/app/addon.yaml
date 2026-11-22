@@ -58,9 +58,61 @@ spec:
     - BOOTSTRAP_ADMIN_EMAIL
     - BOOTSTRAP_ADMIN_PASSWORD_ARGON2ID
     - BOOTSTRAP_ADMIN_PASSWORD_PLAIN
+    - BOOTSTRAP_API_KEY
+    - BOOTSTRAP_API_KEY_SECRET
   snapshot:
     path: /app/data/state_machine/backups
   restore:
     path: /app/data/restore
     env:
       HQL_BACKUP_RESTORE: ${{ "file:" + restore.file }}
+  settings:
+    - kind: RauthyPasswordPolicy
+      target: spec.config.provider
+      resync: 10m
+      function:
+        ref: rauthy-settings
+      schema:
+        type: object
+        additionalProperties: false
+        properties:
+          provider:
+            type: string
+          lengthMin:
+            type: integer
+            minimum: 8
+            maximum: 128
+          lengthMax:
+            type: integer
+            minimum: 8
+            maximum: 128
+          lowerCase:
+            type: integer
+            minimum: 0
+          upperCase:
+            type: integer
+            minimum: 0
+          digits:
+            type: integer
+            minimum: 0
+          special:
+            type: integer
+            minimum: 0
+          validDays:
+            type: integer
+            minimum: 1
+          notRecentlyUsed:
+            type: integer
+            minimum: 1
+        required:
+          - provider
+          - lengthMin
+          - lengthMax
+      constraints:
+        count:
+          perTarget: 1
+        immutable:
+          - spec.config.provider
+        rules:
+          - rule: ${{ object.spec.config.lengthMin <= object.spec.config.lengthMax }}
+            message: lengthMin must not exceed lengthMax

@@ -1,7 +1,7 @@
 name: Release
 
 # release-please keeps a release PR open on main. Merging it tags v<version>; then the CI and the e2e run on that tag,
-# and each add-on's addon.yaml (as <addon>.yaml) and each plugin, for Linux and macOS, are attached to the release.
+# and each add-on's app/addon.yaml (as <addon>.yaml) and each plugin, for Linux and macOS, are attached to the release.
 on:
   push:
     branches:
@@ -71,7 +71,7 @@ jobs:
             nix develop --command just plugins "${p%/*}" "${p#*/}"
           done
           mkdir -p release
-          for d in */addon.yaml; do cp "$d" "release/$(dirname "$d").yaml"; done
+          for d in */app/addon.yaml; do cp "$d" "release/${d%%/*}.yaml"; done
           for f in dist/*/*; do
             tar -czf "release/$(basename "$f")-$(basename "$(dirname "$f")").tar.gz" -C "$(dirname "$f")" "$(basename "$f")"
           done

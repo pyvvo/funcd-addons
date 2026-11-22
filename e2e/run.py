@@ -1,7 +1,8 @@
 """The end-to-end run of funcd-addons: each add-on under funcdctl dev, whose add-on engines run on the Docker daemon at
-FUNCD_DEV_DOCKER_HOST. rauthy is registered from rauthy/addon.yaml, its Secret written by its plugin, its engine run
+FUNCD_DEV_DOCKER_HOST. rauthy is registered from rauthy/app/addon.yaml, its Secret written by its plugin, its engine run
 and served at the edge, backed up and restored in place, and it signs a user in at the edge in front of a test add-on
-that echoes the request (traefik/whoami), with a client funcd registers itself. funcd is built at e2e/funcd.ref, or
+that echoes the request (traefik/whoami), with a client funcd registers itself; and its password policy, a settings
+kind that the settings Function puts into rauthy through its binding. funcd is built at e2e/funcd.ref, or
 from the checkout FUNCD_SRC names. Writes work/results.json and exits 1 when a check fails. SAMPLES sets the samples
 per timing (default 1)."""
 
@@ -12,6 +13,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import signal
 import socket
 import subprocess
@@ -27,6 +29,10 @@ MAN = ROOT / "e2e" / "fixtures"
 BIN = WORK / "bin"
 FUNCDCTL = BIN / "funcdctl"
 PROBE = MAN / "probe"
+# dev's folder: the probe, and rauthy's settings Function with its manifest (funcd ADR-0341).
+SETTINGS = ROOT / "rauthy" / "settings"
+DEV = WORK / "dev"
+POLICIES = "rauthypasswordpolicys"
 SAMPLES = int(os.environ.get("SAMPLES", "1"))
 GPORT, CPORT, S3PORT = 18091, 18090, 18092
 DEV_TOKEN, ADMIN_TOKEN = "funcd-dev-token", "funcd-dev-admin-token"
@@ -263,11 +269,16 @@ def build() -> None:
 
 
 def addon_manifest() -> Path:
-    """rauthy/addon.yaml with its snapshot cron every 15 s, so the run waits seconds for a snapshot, not 15 minutes."""
-    text = (ROOT / "rauthy" / "addon.yaml").read_text()
+    """rauthy/app/addon.yaml with its snapshot cron every 15 s, so the run waits seconds for a snapshot, not 15 minutes."""
+    text = (ROOT / "rauthy" / "app" / "addon.yaml").read_text()
     shortened = re.sub(r'HQL_BACKUP_CRON: "[^"]*"', 'HQL_BACKUP_CRON: "*/15 * * * * * *"', text)
     if shortened == text:
-        raise RuntimeError("rauthy/addon.yaml sets no HQL_BACKUP_CRON")
+        raise RuntimeError("rauthy/app/addon.yaml sets no HQL_BACKUP_CRON")
+    # The password policy's resync every 5 s, so the drift check waits seconds.
+    resynced = shortened.replace("      resync: 10m\n", "      resync: 5s\n")
+    if resynced == shortened:
+        raise RuntimeError("rauthy/app/addon.yaml's RauthyPasswordPolicy sets no resync of 10m")
+    shortened = resynced
     return write("addon-rauthy.yaml", shortened)
 
 
@@ -299,11 +310,26 @@ def clean_docker() -> None:
         docker("volume", "rm", *vols)
 
 
+def dev_folder() -> None:
+    """dev's folder: the probe and rauthy's settings Function, which binds the IdentityProvider login as idp and reads
+    the API key that rauthy-keys bootstraps; dev runs each from its local build, found by its name."""
+    shutil.rmtree(DEV, ignore_errors=True)
+    shutil.copytree(PROBE, DEV)
+    for f in SETTINGS.iterdir():
+        shutil.copy(f, DEV / f.name)
+    (DEV / "rauthy-settings.yaml").write_text(manifest("Function", "rauthy-settings", (
+        "  runtime: nodejs22\n  handler: reconcile\n  image: oci-layout:///mnt/funcd-deps/registry:rauthy-settings\n"
+        "  secrets:\n    - name: rauthy-keys\n      keys:\n        - BOOTSTRAP_API_KEY_SECRET\n"
+        "  bindings:\n    addon:\n      - alias: idp\n        object: login\n    secret:\n      - rauthy-keys\n")))
+
+
 def start_dev() -> subprocess.Popen:
     clean_docker()
+    dev_folder()
     log = open(WORK / "logs" / "dev.log", "w")
     dev = subprocess.Popen([str(FUNCDCTL), "dev", "--gport", str(GPORT), "--cport", str(CPORT), "--s3port", str(S3PORT)],
-                           cwd=PROBE, stdout=log, stderr=subprocess.STDOUT, env={**os.environ, "FUNCD_DEV_DOCKER_HOST": DOCKER})
+                           cwd=DEV, stdout=log, stderr=subprocess.STDOUT,
+                           env={**os.environ, "FUNCD_DEV_DOCKER_HOST": DOCKER, "BOOTSTRAP_API_KEY_SECRET": secrets.token_hex(32)})
     for _ in range(240):
         try:
             socket.create_connection(("127.0.0.1", CPORT), timeout=0.5).close()
@@ -568,6 +594,81 @@ def f262_keep(data: dict, password: str) -> None:
           f"client {before} then {v}; sign-in {r.get('status', r.get('error'))}")
 
 
+def rauthy_api(method: str, path: str, body=None) -> tuple[int, object]:
+    """A call of rauthy's API at its engine's address, with the API key settings that rauthy-keys bootstraps."""
+    addr = status("identityproviders", "login").get("address")
+    secret = secret_data("rauthy-keys").get("BOOTSTRAP_API_KEY_SECRET", "")
+    h = {**UA, "Authorization": f"API-Key settings${secret}"}
+    data = None
+    if body is not None:
+        data, h["Content-Type"] = json.dumps(body).encode(), "application/json"
+    req = urllib.request.Request(f"http://{addr}{path}", data=data, method=method, headers=h)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            raw, st = r.read(), r.status
+    except urllib.error.HTTPError as e:
+        raw, st = e.read(), e.code
+    except (urllib.error.URLError, OSError) as e:
+        return 0, str(e)
+    try:
+        return st, json.loads(raw)
+    except ValueError:
+        return st, raw.decode(errors="replace")
+
+
+probe: dict = {}
+
+
+def set_password(pw: str) -> tuple[int, object]:
+    """A password change of a probe user, which rauthy checks against its policy."""
+    if not probe:
+        st, user = rauthy_api("POST", "/auth/v1/users", {"email": "probe@login.localhost", "given_name": "Probe",
+                                                        "language": "en", "roles": []})
+        if st != 200 or not isinstance(user, dict):
+            return st, user
+        probe.update(user)
+    return rauthy_api("PUT", f"/auth/v1/users/{probe['id']}", {
+        "email": probe["email"], "given_name": probe.get("given_name"), "family_name": probe.get("family_name"),
+        "language": "en", "password": pw, "roles": probe.get("roles") or [], "groups": None, "enabled": True,
+        "email_verified": False, "user_expires": None, "user_values": None})
+
+
+def length_min() -> int | None:
+    """The minimum length rauthy enforces now: rauthy refuses a password too short for any policy and names it."""
+    st, body = set_password("aA1!bC2@")
+    m = re.search(r"Minimum password length is (\d+)", str(body))
+    return int(m.group(1)) if st == 400 and m else None
+
+
+def password(n: int) -> str:
+    return "aA1" + "".join(secrets.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(n - 3))
+
+
+def f266_settings() -> None:
+    """rauthy's settings kind RauthyPasswordPolicy, applied by its Function through the IdentityProvider's binding."""
+    rc, out = apply(write("policy-strict.yaml", manifest("RauthyPasswordPolicy", "strict",
+                                                         "  config:\n    provider: login\n    lengthMin: 16\n    lengthMax: 128\n")))
+    took = phase(POLICIES, "strict", "Ready", 120) if rc == 0 else None
+    check("F266: a password policy turns Ready once rauthy's settings Function applied it", took is not None,
+          out if rc else status(POLICIES, "strict"))
+    s1, b1 = set_password(password(15))
+    s2, b2 = set_password(password(16))
+    check("F266: rauthy enforces the policy: 15 characters are refused, 16 accepted", s1 == 400 and s2 == 200,
+          f"15: {s1} {str(b1)[:120]}; 16: {s2} {str(b2)[:120]}")
+    loose = {"length_min": 10, "length_max": 128, "include_lower_case": None, "include_upper_case": None,
+             "include_digits": None, "include_special": None, "valid_days": None, "not_recently_used": None}
+    st, _ = rauthy_api("PUT", "/auth/v1/password_policy", loose)
+    v, took = wait(lambda: length_min() == 16, 30, 0.5)
+    check("F266: a policy changed at rauthy's own API is put back at the next resync", st == 200 and v,
+          f"PUT {st}, back after {round(took, 1)} s")
+    rc, out = apply(write("policy-second.yaml", manifest("RauthyPasswordPolicy", "second",
+                                                         "  config:\n    provider: login\n    lengthMin: 12\n    lengthMax: 64\n")))
+    check("F266: a second policy for login is refused", rc != 0 and "perTarget" in out, out)
+    rc, out = ctl("delete", POLICIES, "strict", "-n", "default")
+    v, took = wait(lambda: length_min() == 14, 60, 0.5)
+    check("F266: deleting the policy puts rauthy's default back", rc == 0 and v, f"{out}; after {round(took, 1)} s")
+
+
 def main() -> int:
     (WORK / "logs").mkdir(parents=True, exist_ok=True)
     build()
@@ -586,6 +687,7 @@ def main() -> int:
         f262_keep(data, password)
         rc, out = ctl("rauthy", "urls", "login", "-n", "default")
         check("rauthy plugin: funcdctl rauthy urls prints the issuer", rc == 0 and f"issuer:  http://{IDP}/auth/v1/" in out, out)
+        f266_settings()
     finally:
         dev.send_signal(signal.SIGINT)
         try:
