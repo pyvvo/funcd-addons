@@ -36,7 +36,8 @@ func TestManifests(t *testing.T) {
 			}
 			return err
 		}
-		if d.IsDir() || filepath.Ext(path) != ".yaml" || strings.HasPrefix(path, "e2e/") {
+		// A function's contract file is no manifest.
+		if d.IsDir() || filepath.Ext(path) != ".yaml" || strings.HasPrefix(path, "e2e/") || strings.HasSuffix(path, ".contract.yaml") {
 			return nil
 		}
 		f, err := os.Open(path)
@@ -66,8 +67,11 @@ func TestManifests(t *testing.T) {
 		var m struct {
 			Kind string `yaml:"kind"`
 			Spec struct {
-				Kind  string `yaml:"kind"`
-				Image string `yaml:"image"`
+				Kind     string `yaml:"kind"`
+				Image    string `yaml:"image"`
+				Settings []struct {
+					Kind string `yaml:"kind"`
+				} `yaml:"settings"`
 			} `yaml:"spec"`
 		}
 		if err := d.node.Decode(&m); err != nil {
@@ -82,6 +86,9 @@ func TestManifests(t *testing.T) {
 				t.Errorf("%s: the Addon names no kind", d.file)
 			}
 			kinds[m.Spec.Kind] = true
+			for _, st := range m.Spec.Settings {
+				kinds[st.Kind] = true
+			}
 		}
 	}
 	for _, d := range docs {
@@ -89,6 +96,9 @@ func TestManifests(t *testing.T) {
 			Kind string `yaml:"kind"`
 		}
 		_ = d.node.Decode(&m)
+		if templatePart(d.file) {
+			continue
+		}
 		if !kinds[m.Kind] && !slices.Contains(funcdKinds, m.Kind) {
 			t.Errorf("%s: kind %q is neither funcd's nor one an Addon here registers", d.file, m.Kind)
 		}
@@ -96,6 +106,13 @@ func TestManifests(t *testing.T) {
 	if len(kinds) == 0 {
 		t.Fatal("no Addon found")
 	}
+}
+
+// templatePart reports a file of an add-on's App template (funcd ADR-0337) that holds no manifest of a kind: its
+// app.yaml and its resources, parts of the App that funcdctl app deploy renders.
+func templatePart(file string) bool {
+	parts := strings.Split(filepath.ToSlash(file), "/")
+	return len(parts) >= 3 && parts[1] == "app" && (len(parts) == 3 && parts[2] == "app.yaml" || parts[2] == "resources")
 }
 
 // flowNode is the first flow-style mapping or sequence under n that holds something; {} and [] are allowed.

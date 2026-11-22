@@ -7,7 +7,7 @@ data into the namespace's backups, and signs an App's users in through it with a
 
 ## Register it
 
-The server's `addons.registries` lists `ghcr.io`, and an admin applies [`addon.yaml`](addon.yaml) from a release:
+The server's `addons.registries` lists `ghcr.io`, and an admin applies [`addon.yaml`](app/addon.yaml) from a release:
 
 ```sh
 curl -fsSL https://github.com/pyvvo/funcd-addons/releases/download/v0.1.0/rauthy.yaml | funcdctl apply -f -
@@ -41,6 +41,40 @@ rauthy, and its `addon`, naming the IdentityProvider, has funcd reach rauthy at 
 `funcdctl rauthy urls` prints, such as `https://login.example.com/auth/v1/`. A
 Route, a workload's address or a namespace with `auth.mode: oidc` and `auth.provider: <name>` then signs its callers
 in, and the code behind it reads who they are from the `X-Funcd-Principal` headers.
+
+## Set its password policy
+
+The Addon adds the settings kind `RauthyPasswordPolicy`: an object of it holds the password policy of one
+IdentityProvider, which its `provider` names. It runs no engine: funcd sends each IdentityProvider's policy to the
+settings Function, which puts it into rauthy through its binding of the IdentityProvider, and again at each resync, so a
+policy changed at rauthy's own API is put back. Deleting the object puts rauthy's default back. A provider holds one
+policy, and `lengthMin` may not exceed `lengthMax`.
+
+The settings Function is [`settings/rauthy-settings.mjs`](settings/rauthy-settings.mjs), which signs in to rauthy with
+the API key `settings` that `funcdctl rauthy keys` has rauthy create at its first start. Push it as any Function, then
+apply a policy such as [`examples/passwordpolicy.yaml`](examples/passwordpolicy.yaml):
+
+```sh
+funcdctl push settings/rauthy-settings.mjs <registry>/rauthy-settings:0.2.0
+funcdctl apply -f examples/passwordpolicy.yaml
+funcdctl get rauthypasswordpolicys -n default
+```
+
+The kind's Function is `rauthy-settings` of the IdentityProvider's namespace, which binds the IdentityProvider as an
+add-on object; an IdentityProvider may name its own in `spec.functions`.
+
+## Deploy it as an App
+
+[`app/`](app/) is an App template that carries the Addon: `funcdctl app deploy` by an admin registers or updates the
+Addon, then deploys an App that holds an IdentityProvider `<app>-login` and its settings Function `<app>-settings`, which
+the IdentityProvider names for its policies. A developer's deploy needs the kind registered already. The values are
+the registry the settings Function was pushed to, `host`, and `https`:
+
+```sh
+funcdctl app lock app -f values.yaml
+funcdctl push --template app <registry>/rauthy:0.2.0
+funcdctl app deploy <registry>/rauthy:0.2.0 -f values.yaml --name web-auth
+```
 
 ## Backups
 

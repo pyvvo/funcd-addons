@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -36,7 +37,7 @@ func TestKeysPrintsEverySecretKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := out.String()
-	for _, k := range []string{keyRaft, keyAPI, keyEncKeys, keyEncActive, keyAdminEmail, keyAdminPassword, "name: k", "namespace: team", "resourceGroup: idp"} {
+	for _, k := range []string{keyRaft, keyAPI, keyEncKeys, keyEncActive, keyAdminEmail, keyAdminPassword, keyAPIKey, keyAPIKeySecret, "name: k", "namespace: team", "resourceGroup: idp"} {
 		if !strings.Contains(s, k) {
 			t.Errorf("the Secret lacks %s:\n%s", k, s)
 		}
@@ -86,5 +87,27 @@ func TestRandomIsAlphanumericOfItsLength(t *testing.T) {
 	}
 	if len(s) != 48 || strings.Trim(s, alnum) != "" {
 		t.Fatalf("random(48) = %q", s)
+	}
+}
+
+// The settings Function's API key is rauthy's bootstrap JSON, base64, named settings.
+func TestSettingsKeyIsRauthysBootstrapJSON(t *testing.T) {
+	enc, err := settingsKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := base64.StdEncoding.DecodeString(enc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var def struct {
+		Name   string `json:"name"`
+		Access []struct {
+			Group  string   `json:"group"`
+			Rights []string `json:"access_rights"`
+		} `json:"access"`
+	}
+	if err := json.Unmarshal(raw, &def); err != nil || def.Name != "settings" || len(def.Access) == 0 {
+		t.Fatalf("%s: %v", raw, err)
 	}
 }

@@ -6,7 +6,7 @@ serves it at the edge, and copies its data into the namespace's backups.
 
 | Add-on | Kind | What it is |
 |---|---|---|
-| [rauthy](rauthy/) | `IdentityProvider` | An OpenID Connect provider with funcd's look ([pyvvo/funcd-rauthy](https://github.com/pyvvo/funcd-rauthy)), with the funcdctl plugin `funcdctl-rauthy` |
+| [rauthy](rauthy/) | `IdentityProvider`, and the settings kind `RauthyPasswordPolicy` | An OpenID Connect provider with funcd's look ([pyvvo/funcd-rauthy](https://github.com/pyvvo/funcd-rauthy)), with the funcdctl plugin `funcdctl-rauthy`, as an App template |
 
 ## Register one
 
@@ -24,7 +24,8 @@ objects, the Secret they bind and its plugin.
 
 | Path | What |
 |---|---|
-| `<addon>/addon.yaml` | The Addon: its kind, its engine and the schema of its objects' `spec.config` |
+| `<addon>/app/` | The add-on's App template: `addon.yaml`, the Addon (its kind, its engine, the schema of its objects' `spec.config` and its settings kinds), and the App that holds an object of its kind and the Functions beside it |
+| `<addon>/settings/` | The code of its settings kinds' Function, pushed as any Function |
 | `<addon>/examples/` | Objects of its kind, and what uses them |
 | `<addon>/plugin/funcdctl-<addon>/` | Its funcdctl plugin, a Go command that each release builds |
 | `e2e/` | The end-to-end run: each add-on under `funcdctl dev` on Docker |
@@ -33,7 +34,7 @@ objects, the Secret they bind and its plugin.
 ## Releases
 
 release-please keeps a release PR open on `main`. Merging it tags `v<version>`, and the release workflow runs the
-end-to-end check on that tag, then attaches each `addon.yaml` (as `<addon>.yaml`) and each plugin for Linux and macOS
+end-to-end check on that tag, then attaches each `app/addon.yaml` (as `<addon>.yaml`) and each plugin for Linux and macOS
 to the release.
 
 ## Develop
