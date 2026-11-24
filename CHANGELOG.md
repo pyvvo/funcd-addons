@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/pyvvo/funcd-addons/compare/v0.6.0...v0.6.1) (2026-11-24)
+
+
+### Bug Fixes
+
+* **infrastack:** a module whose every variable is sensitive takes void variables, so a run's input sets none (funcd ADR-0355, amended) ([#22](https://github.com/pyvvo/funcd-addons/issues/22)) ([7b07ef0](https://github.com/pyvvo/funcd-addons/commit/7b07ef0c723bfa5ba50775840c8ea58068b1da62))
+
 ## [0.6.0](https://github.com/pyvvo/funcd-addons/compare/v0.5.1...v0.6.0) (2026-11-24)
 
 
