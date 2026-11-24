@@ -5,7 +5,7 @@ metadata:
 spec:
   runtimes:
     - name: tunnel
-      image: ghcr.io/pyvvo/funcd-tunnel@sha256:TODO-pin-after-the-first-image-build
+      image: ghcr.io/pyvvo/funcd-tunnel@sha256:870b180cebbb19714977903cf890bee40b0d546a3f3995c6a230891431688c21
       workloads:
         - Engine
       attributes:

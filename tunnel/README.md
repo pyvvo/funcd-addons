@@ -68,6 +68,7 @@ On containerd with egress on, 2026-11-24, in funcd's `addon-frp-bunny` lane: a T
 InfraStack's outputs Secret dialed an frps in the VM, and a call to frps with the tunnel's host was answered by a
 Function of the Tunnel's namespace through funcd's edge on the bridge address.
 
-## Not yet
+## The image
 
-The image's digest in `app/addon.yaml` is a TODO until the release workflow publishes `ghcr.io/pyvvo/funcd-tunnel`.
+v0.4.0's release published `ghcr.io/pyvvo/funcd-tunnel` for linux/amd64 and linux/arm64, and `app/addon.yaml` pins its
+index digest.
