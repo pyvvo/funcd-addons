@@ -1,0 +1,47 @@
+{
+  "shim": {
+    "module": "github.com/pyvvo/funcd-python",
+    "version": "v0.30.0"
+  },
+  "tofu": {
+    "version": "1.13.9",
+    "url": "https://github.com/opentofu/opentofu/releases/download/v{version}/tofu_{version}_linux_{arch}.zip",
+    "source": "https://github.com/opentofu/opentofu",
+    "sha256": {
+      "amd64": "bc44eb6b06446ba83bd4072114891987f590f66cca712737a7f1147c50c539ce",
+      "arm64": "04f7c93828b859d420269ed30f923ffebf09157b5d7fb95bf8d88a4d208b7fa3"
+    }
+  },
+  "providers": [
+    {
+      "address": "registry.opentofu.org/bunnyway/bunnynet",
+      "version": "0.20.2",
+      "url": "https://github.com/BunnyWay/terraform-provider-bunnynet/releases/download/v{version}/terraform-provider-bunnynet_{version}_linux_{arch}.zip",
+      "source": "https://github.com/BunnyWay/terraform-provider-bunnynet",
+      "sha256": {
+        "amd64": "e82428fdd0f16efed2ca0100e2c52dcc4636f05a23bcef1ab861776896b488c6",
+        "arm64": "d8658f3571269aa2bcddc41c2987e50768f43d501ce8a97a26d3ba5e9c1e2569"
+      }
+    },
+    {
+      "address": "registry.opentofu.org/hashicorp/random",
+      "version": "3.6.3",
+      "url": "https://github.com/opentofu/terraform-provider-random/releases/download/v{version}/terraform-provider-random_{version}_linux_{arch}.zip",
+      "source": "https://github.com/opentofu/terraform-provider-random",
+      "sha256": {
+        "amd64": "21a15ac74adb8ba499aab989a4248321b51946e5431219b56fc827e565776714",
+        "arm64": "f27e6995e1e9fe3914a2654791fc8d67cdce44f17bf06e614ead7dfd2b13d3ae"
+      }
+    },
+    {
+      "address": "registry.opentofu.org/hashicorp/null",
+      "version": "3.2.4",
+      "url": "https://github.com/opentofu/terraform-provider-null/releases/download/v{version}/terraform-provider-null_{version}_linux_{arch}.zip",
+      "source": "https://github.com/opentofu/terraform-provider-null",
+      "sha256": {
+        "amd64": "3d106c7e32a929e2843f732625a582e562ff09120021e510a51a6f5d01175b8d",
+        "arm64": "e05bbd88e82e1d6234988c85db62fd66f11502645838fff594a2ec25352ecd80"
+      }
+    }
+  ]
+}

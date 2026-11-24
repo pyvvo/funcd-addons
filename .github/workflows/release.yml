@@ -1,7 +1,8 @@
 name: Release
 
 # release-please keeps a release PR open on main. Merging it tags v<version>; then the CI and the e2e run on that tag,
-# and each add-on's app/addon.yaml (as <addon>.yaml) and each plugin, for Linux and macOS, are attached to the release.
+# and each add-on's app/addon.yaml (as <addon>.yaml) and each plugin, for Linux and macOS, are attached to the release,
+# and the add-ons' images are pushed to GHCR for linux/amd64 and linux/arm64, tagged <version>.
 on:
   push:
     branches:
@@ -71,7 +72,11 @@ jobs:
             nix develop --command just plugins "${p%/*}" "${p#*/}"
           done
           mkdir -p release
-          for d in */app/addon.yaml; do cp "$d" "release/${d%%/*}.yaml"; done
+          for d in */app/addon.yaml; do
+            # An Addon whose image the images job publishes in this release is pinned by a follow-up.
+            if grep -q '@sha256:TODO' "$d"; then echo "skip $d: an image of it is not pinned yet"; continue; fi
+            cp "$d" "release/${d%%/*}.yaml"
+          done
           for f in dist/*/*; do
             tar -czf "release/$(basename "$f")-$(basename "$(dirname "$f")").tar.gz" -C "$(dirname "$f")" "$(basename "$f")"
           done
@@ -81,3 +86,54 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "${{ needs.release-please.outputs.tag_name }}" release/* --clobber
+
+  # Each image is built from the tag for both platforms and pushed as one index; the summary lists each index's digest,
+  # which a follow-up pins in the Addon. A package that a first push creates is private until it is made public.
+  images:
+    needs:
+      - release-please
+      - check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build and push the images
+        env:
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          version=${TAG#v}
+          build() {
+            name=$1 context=$2
+            shift 2
+            docker buildx build --platform linux/amd64,linux/arm64 --provenance=false --sbom=false \
+              --build-arg SOURCE_DATE_EPOCH=315532800 \
+              --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
+              --label "org.opencontainers.image.version=$version" \
+              --tag "ghcr.io/pyvvo/$name:$version" --metadata-file "$name.json" --push "$@" "$context"
+            echo "ghcr.io/pyvvo/$name@$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["containerimage.digest"])' "$name.json")" >> "$GITHUB_STEP_SUMMARY"
+          }
+          shim=$(nix develop --command just opentofu-shim)
+          build funcd-opentofu infrastack/runtime --build-context "shim=$shim/shim" -f infrastack/runtime/Dockerfile
+          if [ -d tunnel/image ]; then build funcd-tunnel tunnel/image; fi

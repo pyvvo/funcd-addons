@@ -3,11 +3,29 @@
 default:
     @just --list
 
-# check the manifests and build and test the plugins
+# check the manifests, build and test the plugins, and test the InfraStack handler and reconciler
 ci:
     test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
     go vet ./...
     go test -race ./...
+    just test-infrastack
+
+# test the InfraStack add-on's OpenTofu handler, with a stand-in for OpenTofu, and its reconciler Function
+test-infrastack:
+    python3 -m unittest infrastack/runtime/handler_test.py
+    node --test 'infrastack/**/*.test.mjs'
+
+# print the folder of the funcd-python module whose shim the OpenTofu runtime carries, at the version pins.json names
+opentofu-shim:
+    @go mod download -json "$(python3 -c 'import json; s = json.load(open("infrastack/runtime/pins.json"))["shim"]; print(s["module"] + "@" + s["version"])')" | python3 -c 'import json, sys; print(json.load(sys.stdin)["Dir"])'
+
+# build the OpenTofu runtime image for this machine's Docker; shim is a funcd-python checkout's folder, else pins.json's
+opentofu-image shim="":
+    docker build --provenance=false --sbom=false --build-context shim="$(if [ -n '{{shim}}' ]; then echo '{{shim}}'; else echo "$(just opentofu-shim)/shim"; fi)" -f infrastack/runtime/Dockerfile -t funcd-addons/opentofu:dev infrastack/runtime
+
+# run the OpenTofu runtime image's check: plan, apply and destroy the example module against versitygw on Docker
+opentofu-image-check image="funcd-addons/opentofu:dev":
+    infrastack/runtime/image_test.sh {{image}}
 
 # build each add-on's funcdctl plugin for one platform into dist/<goos>-<goarch>/
 plugins goos="" goarch="":
