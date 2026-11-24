@@ -64,6 +64,10 @@ endpoint of type CDN is reached only through Bunny.
 On Docker, 2026-11-24: a call to a local frps with the tunnel's `host` reached a stand-in edge with the Host header
 rewritten to `hostRewrite`, `/healthz` answered 200, and frpc, started before frps, connected 2 s after frps came up.
 
+On containerd with egress on, 2026-11-24, in funcd's `addon-frp-bunny` lane: a Tunnel whose token came from an
+InfraStack's outputs Secret dialed an frps in the VM, and a call to frps with the tunnel's host was answered by a
+Function of the Tunnel's namespace through funcd's edge on the bridge address.
+
 ## Not yet
 
 The image's digest in `app/addon.yaml` is a TODO until the release workflow publishes `ghcr.io/pyvvo/funcd-tunnel`.
