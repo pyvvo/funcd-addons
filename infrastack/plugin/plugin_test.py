@@ -380,6 +380,7 @@ class PluginTest(unittest.TestCase):
         self.assertEqual(infra.to_yaml({"a": {"b": ["x", "true", "a b"], "c": {}, "d": 3, "e": False}}),
                          'a:\n  b:\n    - x\n    - "true"\n    - "a b"\n  c: {}\n  d: 3\n  e: false\n')
 
+    # scenario: infra-outputs-lists-them
     def test_outputs_prints_each_key_and_never_a_sensitive_value(self):
         """funcd ADR-0356 Decision 8: the stack's Job, its contract, its ConfigMaps' INFRASTACK_OUTPUTS_SECRET, a later
         one winning, and that Secret, each value the contract does not name printed as (sensitive)."""
