@@ -22,6 +22,8 @@ functions:
     runtime: nodejs22
     handler: reconcile
     image: ${{ images.settings }}
+    ingress:
+      enabled: false
     bindings:
       addon:
         - alias: idp

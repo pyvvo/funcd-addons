@@ -321,6 +321,7 @@ def dev_folder() -> None:
         shutil.copy(f, DEV / f.name)
     (DEV / "rauthy-settings.yaml").write_text(manifest("Function", "rauthy-settings", (
         "  runtime: nodejs22\n  handler: reconcile\n  image: oci-layout:///mnt/funcd-deps/registry:rauthy-settings\n"
+        "  ingress:\n    enabled: false\n"
         "  secrets:\n    - name: rauthy-keys\n      keys:\n        - BOOTSTRAP_API_KEY_SECRET\n"
         "  bindings:\n    addon:\n      - alias: idp\n        object: login\n    secret:\n      - rauthy-keys\n")))
 
@@ -666,6 +667,9 @@ def f266_settings() -> None:
     rc, out = apply(write("policy-second.yaml", manifest("RauthyPasswordPolicy", "second",
                                                          "  config:\n    provider: login\n    lengthMin: 12\n    lengthMax: 64\n")))
     check("F266: a second policy for login is refused", rc != 0 and "perTarget" in out, out)
+    # A host no object claims: the default namespace's Functions answer there.
+    st, _, body = edge("POST", "edge.test", "/function/rauthy-settings", body={})
+    check("F266: the settings Function, which only funcd calls, has no address at the edge", st == 404, f"{st} {body[:160]!r}")
     rc, out = ctl("delete", POLICIES, "strict", "-n", "default")
     v, took = wait(lambda: length_min() == 14, 60, 0.5)
     check("F266: deleting the policy puts rauthy's default back", rc == 0 and v, f"{out}; after {round(took, 1)} s")

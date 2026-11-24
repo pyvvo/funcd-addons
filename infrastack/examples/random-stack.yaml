@@ -84,6 +84,8 @@ spec:
   runtime: nodejs22
   handler: reconcile
   image: registry.example.com/infrastack-reconciler:0.1.0
+  ingress:
+    enabled: false
   bindings:
     job:
       - alias: random-stack
