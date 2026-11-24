@@ -1,0 +1,95 @@
+# One stack without an App: its state's Bucket prefix, which its Job owns; the ConfigMap that names it to the OpenTofu
+# runtime; the Secret that gets its sensitive outputs; its Job, whose image is the random-stack module pushed with its
+# contract (funcdctl push random-stack <ref> --entry main.tf); the reconciler Function, which binds the Job; and the
+# InfraStack itself.
+apiVersion: funcd.io/v1alpha1
+kind: Bucket
+metadata:
+  name: stacks
+  namespace: default
+  resourceGroup: default
+spec:
+  prefixes:
+    - name: random-stack
+      owner:
+        kind: Job
+        name: random-stack
+---
+apiVersion: funcd.io/v1alpha1
+kind: ConfigMap
+metadata:
+  name: random-stack-infrastack
+  namespace: default
+  resourceGroup: default
+data:
+  INFRASTACK_STATE_BUCKET: stacks
+  INFRASTACK_STATE_PREFIX: random-stack
+  INFRASTACK_OUTPUTS_SECRET: random-stack-outputs
+---
+apiVersion: funcd.io/v1alpha1
+kind: Secret
+metadata:
+  name: random-stack-outputs
+  namespace: default
+  resourceGroup: default
+spec:
+  owner:
+    kind: Job
+    name: random-stack
+---
+apiVersion: funcd.io/v1alpha1
+kind: Job
+metadata:
+  name: random-stack
+  namespace: default
+  resourceGroup: default
+spec:
+  runtime: opentofu1
+  handler: handle
+  image: registry.example.com/random-stack:0.1.0
+  timeout: 10m
+  resources:
+    memory: 512Mi
+  configMaps:
+    - ref: random-stack-infrastack
+  secrets:
+    - name: random-stack-outputs
+      keys:
+        - token
+  bindings:
+    blob:
+      - alias: state
+        bucket: stacks
+        prefix: random-stack
+    config:
+      - random-stack-infrastack
+    secret:
+      - random-stack-outputs
+---
+apiVersion: funcd.io/v1alpha1
+kind: Function
+metadata:
+  name: infrastack-reconciler
+  namespace: default
+  resourceGroup: default
+spec:
+  runtime: nodejs22
+  handler: reconcile
+  image: registry.example.com/infrastack-reconciler:0.1.0
+  bindings:
+    job:
+      - alias: random-stack
+        job: random-stack
+---
+apiVersion: funcd.io/v1alpha1
+kind: InfraStack
+metadata:
+  name: random-stack
+  namespace: default
+  resourceGroup: default
+spec:
+  deletion: delete
+  config:
+    job: random-stack
+    variables:
+      prefix: example
