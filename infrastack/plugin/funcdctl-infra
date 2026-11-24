@@ -1,0 +1,370 @@
+#!/usr/bin/env python3
+"""funcdctl infra: the InfraStack add-on's funcdctl plugin (funcd ADR-0319).
+
+  funcdctl infra push <module> <ref>
+      Push an OpenTofu module as one bundle per platform, linux/amd64 and linux/arm64, each with that platform's
+      providers and a contract made from the module's variables and outputs, joined by an image index; print
+      <ref>@<digest> (funcd ADR-0355).
+  funcdctl infra outputs <stack> [-n <namespace>] [-o json]
+      Print each output of an InfraStack from the Secret its Job owns, a sensitive one as (sensitive) (funcd ADR-0356).
+
+It runs OpenTofu in the add-on's runtime image, the one its Addon pins, or the one INFRASTACK_OPENTOFU_IMAGE names, on
+the first of docker and nerdctl on PATH, copying files in and out with no bind mount, and reaches funcd only through
+$FUNCDCTL. It needs Python 3.9 or later and nothing outside its standard library.
+"""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import json
+import os
+import posixpath
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+# The Addon's opentofu1 image (funcd ADR-0355 Decision 1); the release stamps it from the Addon it ships beside.
+IMAGE = "ghcr.io/pyvvo/funcd-opentofu@sha256:2a8453de4a2f9794fd7031980dcf4ff41dd8e3c09961fbe816379df089e94005"
+IMAGE_ENV = "INFRASTACK_OPENTOFU_IMAGE"
+ENGINES = ("docker", "nerdctl")
+RUNTIME = "opentofu1"
+ACTIONS = ("apply", "destroy", "plan")
+PLATFORMS = ("linux/amd64", "linux/arm64")
+PROVIDERS = ".funcd-providers"
+LOCAL_FILES = ("terraform.tfstate", "terraform.tfstate.backup", "terraform.tfvars", "terraform.tfvars.json")
+LOCAL_SUFFIXES = (".auto.tfvars", ".auto.tfvars.json")
+# The image's interpreter runs OpenTofu's commands in turn on the copy at WORKDIR, and prints their outputs as JSON.
+PYTHON = "/usr/local/bin/python3.14"
+WORKDIR = "/m"
+DRIVER = """\
+import json, subprocess, sys
+outs = []
+for args in json.loads(sys.argv[1]):
+    run = subprocess.run(["/opt/tofu/bin/tofu", *args], capture_output=True, text=True)
+    if run.returncode != 0:
+        sys.stderr.write("tofu " + " ".join(args) + ":\\n" + (run.stderr or run.stdout))
+        sys.exit(run.returncode)
+    outs.append(run.stdout)
+print(json.dumps(outs))
+"""
+OUTPUTS_SECRET = "INFRASTACK_OUTPUTS_SECRET"
+SENSITIVE = "(sensitive)"
+# A plan run's finding (funcd ADR-0355 Decision 5).
+PLAN = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "add": {"type": "integer"},
+        "change": {"type": "integer"},
+        "destroy": {"type": "integer"},
+        "replace": {"type": "integer"},
+        "resources": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["add", "change", "destroy", "replace", "resources"],
+}
+PLAIN = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")
+YAML_WORDS = ("true", "false", "null", "yes", "no", "on", "off", "y", "n", "~")
+
+
+class InfraError(RuntimeError):
+    """A command that cannot go on: its message says why."""
+
+
+def record(properties: dict, required: list) -> dict:
+    """A closed record of properties, or the empty schema when it would have no member (funcd ADR-0355 Decision 3)."""
+    if not properties:
+        return {}
+    out = {"type": "object", "additionalProperties": False, "properties": properties}
+    if required:
+        out["required"] = required
+    return out
+
+
+def schema(tofu_type: object) -> dict:
+    """The schema of a variable's type as `tofu show -json -module` prints it (funcd ADR-0355 Contracts' table)."""
+    scalars = {"string": "string", "number": "number", "bool": "boolean"}
+    if isinstance(tofu_type, str) and tofu_type in scalars:
+        return {"type": scalars[tofu_type]}
+    if isinstance(tofu_type, list) and len(tofu_type) >= 2:
+        kind, inner = tofu_type[0], tofu_type[1]
+        if kind in ("list", "set"):
+            return {"type": "array", "items": schema(inner)}
+        if kind == "tuple":
+            return {"type": "array", "items": {}}
+        if kind == "map":
+            return {"type": "object", "additionalProperties": schema(inner)}
+        if kind == "object" and isinstance(inner, dict):
+            optional = set(tofu_type[2]) if len(tofu_type) > 2 else set()
+            return record({name: schema(t) for name, t in sorted(inner.items())},
+                          sorted(name for name in inner if name not in optional))
+    return {}
+
+
+def contract(shown: dict) -> dict:
+    """The module's contract from its configuration (funcd ADR-0355 Decision 3): the run's input of an action and the
+    variables that are not sensitive, required when they have no default, and its output of the plain outputs or a
+    plan run's finding."""
+    root = shown.get("root_module") or {}
+    variables = {name: v for name, v in sorted((root.get("variables") or {}).items()) if not v.get("sensitive")}
+    inputs = record({name: schema(v.get("type")) for name, v in variables.items()},
+                    sorted(name for name, v in variables.items() if "default" not in v))
+    outputs = {name: {} for name, o in sorted((root.get("outputs") or {}).items()) if not o.get("sensitive")}
+    return {
+        "runtime": RUNTIME,
+        "input": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {"action": {"type": "string", "enum": list(ACTIONS)}, "variables": inputs},
+            "required": ["action", "variables"],
+        },
+        "output": record({"outputs": record(outputs, []), "plan": PLAN}, []),
+    }
+
+
+def module_calls(shown: dict, at: str = ".") -> list:
+    """The calls of the module at `at`, a folder relative to the root module's, that the push refuses (funcd ADR-0355
+    Decision 2's step 1): a source that is no relative path, which a run's init would fetch, and one that leaves the
+    root module's folder, which the bundle would not hold. Each is named as `<call> (<source>)`."""
+    refused = []
+    for name, call in sorted(((shown.get("root_module") or {}).get("module_calls") or {}).items()):
+        source = call.get("source") or ""
+        if child(at, source) is None:
+            refused.append(f"{name} ({source})")
+    return refused
+
+
+def child(at: str, source: str) -> str | None:
+    """The folder, relative to the root module's, that a call's source names from the module at `at`, or None when it
+    is no relative path inside the root module's folder."""
+    if not (source.startswith("./") or source.startswith("../")):
+        return None
+    path = posixpath.normpath(posixpath.join(at, source))
+    if path == ".." or path.startswith("../") or posixpath.isabs(path):
+        return None
+    return path
+
+
+def local_files(module: Path) -> list:
+    """The files under the module's folder, outside .terraform/, that OpenTofu would load over a run's variables or that
+    hold a state (funcd ADR-0355 Decision 2's step 1)."""
+    found = []
+    for folder, dirs, files in os.walk(module):
+        dirs[:] = sorted(d for d in dirs if d != ".terraform")
+        for name in sorted(files):
+            if name in LOCAL_FILES or name.endswith(LOCAL_SUFFIXES):
+                found.append(str((Path(folder) / name).relative_to(module)))
+    return found
+
+
+def to_yaml(value: object, pad: str = "") -> str:
+    """value as block-style YAML: mappings and sequences of scalars, an empty mapping as {}."""
+    lines = []
+    for key, item in value.items():
+        if isinstance(item, dict) and item:
+            lines.append(f"{pad}{scalar(key)}:")
+            lines.append(to_yaml(item, pad + "  ").rstrip("\n"))
+        elif isinstance(item, list) and item:
+            lines.append(f"{pad}{scalar(key)}:")
+            lines.extend(f"{pad}  - {scalar(v)}" for v in item)
+        else:
+            lines.append(f"{pad}{scalar(key)}: {scalar(item)}")
+    return "\n".join(lines) + "\n"
+
+
+def scalar(value: object) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return json.dumps(value)
+    if isinstance(value, dict):
+        return "{}"
+    if isinstance(value, list):
+        return "[]"
+    if value is None:
+        return "null"
+    text = str(value)
+    if PLAIN.match(text) and text.lower() not in YAML_WORDS:
+        return text
+    return json.dumps(text)
+
+
+def funcdctl() -> str:
+    """The funcdctl that runs this plugin (FUNCDCTL), else the one on PATH."""
+    return os.environ.get("FUNCDCTL") or "funcdctl"
+
+
+def call_funcdctl(*args: str) -> str:
+    """Run funcdctl with args and return what it printed; a refusal ends the command with funcdctl's message."""
+    run = subprocess.run([funcdctl(), *args], capture_output=True, text=True)  # noqa: S603 - funcdctl, as ADR-0319 runs plugins
+    if run.returncode != 0:
+        raise InfraError((run.stderr or run.stdout).strip() or f"funcdctl {args[0]} failed")
+    return run.stdout
+
+
+class Engine:
+    """A container engine that runs OpenTofu in the add-on's runtime image."""
+
+    def __init__(self) -> None:
+        self.binary = next((b for b in (shutil.which(e) for e in ENGINES) if b), None)
+        if self.binary is None:
+            raise InfraError("neither docker nor nerdctl is on PATH: the push runs OpenTofu in the add-on's image")
+        self.image = os.environ.get(IMAGE_ENV) or IMAGE
+
+    def _do(self, *args: str) -> str:
+        run = subprocess.run([self.binary, *args], capture_output=True, text=True)  # noqa: S603 - the engine found on PATH
+        if run.returncode != 0:
+            raise InfraError(f"{Path(self.binary).name} {args[0]} failed: {(run.stderr or run.stdout).strip()}")
+        return run.stdout
+
+    def tofu(self, folder: Path, commands: list, fetch: str | None = None, into: Path | None = None) -> list:
+        """Run OpenTofu's commands in turn in a container of the image, on a copy of folder, and return what each
+        printed; with fetch, copy that path of the container's copy out to into."""
+        cid = self._do("create", "--entrypoint", PYTHON, "-w", WORKDIR, "-e", "TF_IN_AUTOMATION=1",
+                       "-e", "CHECKPOINT_DISABLE=1", "-e", "HOME=/tmp", self.image, "-c", DRIVER,
+                       json.dumps(commands)).strip()
+        try:
+            self._do("cp", f"{folder}/.", f"{cid}:{WORKDIR}")
+            run = subprocess.run([self.binary, "start", "-a", cid], capture_output=True, text=True)  # noqa: S603
+            if run.returncode != 0:
+                raise InfraError((run.stderr or run.stdout).strip())
+            if fetch:
+                self._do("cp", f"{cid}:{WORKDIR}/{fetch}", str(into))
+            return json.loads(run.stdout)
+        finally:
+            subprocess.run([self.binary, "rm", "-f", cid], capture_output=True)  # noqa: S603
+
+
+def shown_tree(engine: Engine, stage: Path) -> dict:
+    """The configuration of the module and of each local child it calls, read with `tofu show -json -module`, by
+    folder relative to the module's; a refused call ends the push, naming it (funcd ADR-0355 Decision 2's step 1)."""
+    shown: dict = {}
+    level = ["."]
+    while level:
+        outs = engine.tofu(stage, [["show", "-json", "-no-color", f"-module={at}"] for at in level])
+        found = []
+        for at, out in zip(level, outs):
+            shown[at] = json.loads(out)
+            refused = module_calls(shown[at], at)
+            if refused:
+                where = "the module" if at == "." else f"its child module {at}"
+                raise InfraError(f"{where} calls {', '.join(refused)}, which the bundle would not hold: a call's source "
+                                 "must be a relative path inside the module's folder")
+            for call in (shown[at].get("root_module") or {}).get("module_calls", {}).values():
+                path = child(at, call.get("source") or "")
+                if path not in shown and path not in found:
+                    found.append(path)
+        level = found
+    return shown
+
+
+def stage_copy(module: Path, into: Path) -> None:
+    """The module's files as a bundle holds them: no .terraform/, no provider folder and no contract file of its own."""
+    name = module.name
+    own = {f"{name}.contract.yaml", f"{name}.contract.json", "__funcd_contract.json", PROVIDERS}
+
+    def skip(folder: str, names: list) -> list:
+        top = Path(folder).resolve() == module
+        return [n for n in names if n == ".terraform" or (top and n in own)]
+
+    shutil.copytree(module, into, ignore=skip, symlinks=True)
+
+
+def tagged(ref: str, platform: str) -> str:
+    """The ref of the bundle of platform: <ref>-linux-<arch>."""
+    return f"{ref}-{platform.replace('/', '-')}"
+
+
+def check_ref(ref: str) -> None:
+    tail = ref.rsplit("/", 1)[-1]
+    if "@" in ref or ":" not in tail:
+        raise InfraError(f"the ref {ref} names no tag: give <registry>/<repo>:<tag> or oci-layout://<dir>:<tag>")
+
+
+def push(module: Path, ref: str) -> str:
+    """Push the module as funcd ADR-0355 Decision 2 says, and return the index's <ref>@<digest>."""
+    module = module.resolve()
+    if not module.is_dir() or not any(p.suffix == ".tf" and p.is_file() for p in module.iterdir()):
+        raise InfraError(f"{module.name} is no folder that holds a .tf file")
+    local = local_files(module)
+    if local:
+        raise InfraError(f"{module.name} holds {', '.join(local)}, which OpenTofu would load over a run's variables or "
+                         "which holds a state: remove it, and set each variable through the stack's config")
+    check_ref(ref)
+    engine = Engine()
+    with tempfile.TemporaryDirectory(prefix="funcdctl-infra-") as tmp:
+        stage = Path(tmp) / "stage" / module.name
+        stage_copy(module, stage)
+        shown = shown_tree(engine, stage)
+        doc = to_yaml(contract(shown["."]))
+        lock = ".terraform.lock.hcl"
+        engine.tofu(stage, [["get"], ["providers", "lock", *(f"-platform={p.replace('/', '_')}" for p in PLATFORMS)]],
+                    fetch=lock, into=stage / lock)
+        shutil.copyfile(stage / lock, module / lock)
+        first = sorted(p.name for p in stage.iterdir() if p.suffix == ".tf" and p.is_file())[0]
+        for platform in PLATFORMS:
+            build = Path(tmp) / platform.replace("/", "-") / module.name
+            shutil.copytree(stage, build, symlinks=True)
+            engine.tofu(stage, [["get"], ["providers", "mirror", f"-platform={platform.replace('/', '_')}", PROVIDERS]],
+                        fetch=PROVIDERS, into=build / PROVIDERS)
+            (build / f"{module.name}.contract.yaml").write_text(doc, encoding="utf-8")
+            call_funcdctl("push", str(build), tagged(ref, platform), "--entry", first, "--platform", platform)
+    return call_funcdctl("index", ref, *(tagged(ref, p) for p in PLATFORMS)).strip().splitlines()[-1]
+
+
+def get(kind: str, name: str, namespace: str) -> dict:
+    return json.loads(call_funcdctl("get", kind, name, "-n", namespace, "-o", "json"))
+
+
+def outputs(stack: str, namespace: str) -> dict:
+    """Each key of the stack's outputs Secret, with its value when the Job's contract names it among its plain outputs,
+    else (sensitive) (funcd ADR-0356 Decision 8)."""
+    st = get("infrastack", stack, namespace)
+    job_name = ((st.get("spec") or {}).get("config") or {}).get("job")
+    if not job_name:
+        raise InfraError(f"the InfraStack {namespace}/{stack} names no config.job")
+    job = get("job", job_name, namespace)
+    output = ((job.get("status") or {}).get("contract") or {}).get("output") or {}
+    plain = set((((output.get("properties") or {}).get("outputs") or {}).get("properties") or {}))
+    secret = None
+    for cm in ((job.get("spec") or {}).get("bindings") or {}).get("config") or []:
+        data = (get("configmap", cm, namespace).get("spec") or {}).get("data") or {}
+        secret = data.get(OUTPUTS_SECRET, secret)  # a later ConfigMap's key wins, as the runtime reads them
+    if not secret:
+        raise InfraError(f"the Job {namespace}/{job_name} binds no ConfigMap that names {OUTPUTS_SECRET}")
+    data = (get("secret", secret, namespace).get("spec") or {}).get("data") or {}
+    return {key: base64.b64decode(data[key]).decode() if key in plain else SENSITIVE for key in sorted(data)}
+
+
+def main(argv: list) -> int:
+    parser = argparse.ArgumentParser(prog="funcdctl infra", description="The InfraStack add-on's commands.")
+    sub = parser.add_subparsers(dest="command", required=True)
+    p = sub.add_parser("push", help="push an OpenTofu module with its providers and its contract; print <ref>@<digest>")
+    p.add_argument("module")
+    p.add_argument("ref")
+    o = sub.add_parser("outputs", help="print an InfraStack's outputs, a sensitive one as (sensitive)")
+    o.add_argument("stack")
+    o.add_argument("-n", "--namespace", default="default")
+    o.add_argument("-o", "--output", choices=["json"])
+    args = parser.parse_args(argv)
+    try:
+        if args.command == "push":
+            print(push(Path(args.module), args.ref))
+        else:
+            got = outputs(args.stack, args.namespace)
+            if args.output == "json":
+                print(json.dumps(got, indent=2))
+            else:
+                for key, value in got.items():
+                    print(f"{key}: {value}")
+    except InfraError as err:
+        print(f"funcdctl infra: {err}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
