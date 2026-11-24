@@ -253,7 +253,7 @@ def shown_tree(engine: Engine, stage: Path) -> dict:
                 where = "the module" if at == "." else f"its child module {at}"
                 raise InfraError(f"{where} calls {', '.join(refused)}, which the bundle would not hold: a call's source "
                                  "must be a relative path inside the module's folder")
-            for call in (shown[at].get("root_module") or {}).get("module_calls", {}).values():
+            for call in ((shown[at].get("root_module") or {}).get("module_calls") or {}).values():
                 path = child(at, call.get("source") or "")
                 if path not in shown and path not in found:
                     found.append(path)
