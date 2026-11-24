@@ -15,6 +15,11 @@ infrastack/
 │   │   ├── main.tf
 │   │   └── random-stack.contract.yaml
 │   └── random-stack.yaml
+├── plugin/
+│   ├── funcdctl-infra
+│   ├── plugin_test.py
+│   ├── push_check.py
+│   └── stamp.py
 ├── reconciler/
 │   ├── infrastack-reconciler.contract.yaml
 │   ├── infrastack-reconciler.mjs
@@ -51,10 +56,11 @@ A stack is six objects of one namespace; `examples/random-stack.yaml` holds them
 | the reconciler Function | `bindings.job`: one entry per stack, its alias the Job's name |
 | the InfraStack | `config.job`, `config.variables` and `deletion` |
 
-The Job's image is the module, pushed as a bundle with its contract: `funcdctl push <module> <ref> --entry main.tf`,
-beside `<module>.contract.yaml`, whose runtime is `opentofu1`. A run's input is `{"action": "apply" | "destroy",
-"variables": {...}}`, so the contract's input holds both. Its output holds `outputs`, a closed record of the module's
-plain outputs, none required, since a destroy answers `{}` (funcd ADR-0355 Decision 3).
+The Job's image is the module, pushed with `funcdctl infra push <module> <ref>` (below). A run's input is
+`{"action": "apply" | "destroy" | "plan", "variables": {...}}`; its output is `{"outputs": {...}}` for an apply, `{}`
+for a destroy and `{"plan": {...}}` for a plan run (funcd ADR-0355 Decision 3). A module pushed by hand, `funcdctl push
+<module> <ref> --entry main.tf` beside a `<module>.contract.yaml` written in that shape, runs as well, with the image's
+providers.
 
 The Job's bound Secrets give OpenTofu its environment: each key in upper case, such as `BUNNYNET_API_KEY`, and each
 `TF_VAR_<variable>`. A key that starts with `AWS_` never reaches OpenTofu, since the state's S3 key pair takes that
@@ -65,14 +71,43 @@ With `server.network.egress` on, the Job reaches its cloud's API only under an E
 (`appliesTo` kind `Job`, funcd ADR-0351), and the S3 gateway only when `server.network.internalAllow` lists the
 gateway's bridge address and port, such as `10.63.0.1:9000`.
 
+## The plugin
+
+`funcdctl-infra`, attached to each release, is the add-on's funcdctl plugin (funcd ADR-0319, ADR-0355): on PATH,
+`funcdctl infra` runs it. It needs Python 3.9 or later, and `docker` or `nerdctl`, the first on PATH; it runs OpenTofu
+in the image of the Addon's `opentofu1` runtime, which each release stamps into it, or in the image that
+`INFRASTACK_OPENTOFU_IMAGE` names, and copies files in and out with `cp`, with no bind mount. It reaches funcd through
+`$FUNCDCTL`.
+
+- **`funcdctl infra push <module> <ref>`** pushes a module folder. `<ref>` is `<registry>/<repo>:<tag>` or
+  `oci-layout://<dir>:<tag>`. It refuses a folder that holds `terraform.tfstate`, `terraform.tfstate.backup`,
+  `terraform.tfvars`, `terraform.tfvars.json`, `*.auto.tfvars` or `*.auto.tfvars.json` outside `.terraform/`, and a
+  module call whose source is not a relative path inside the folder, such as a registry module or `../shared`, naming
+  it. It locks the providers for `linux_amd64` and `linux_arm64` into the module's `.terraform.lock.hcl`, to commit,
+  then pushes one bundle per platform, `<ref>-linux-amd64` and `<ref>-linux-arm64`, each with that platform's
+  provider packages in `.funcd-providers/` and a contract made from the module, and joins them with `funcdctl index`.
+  It prints `<ref>@<digest>`.
+- **The contract** has the input `action`, one of `apply`, `destroy` and `plan`, and `variables`, a closed record of
+  the module's variables, the ones with no default required. A sensitive variable is left out, so no run's input holds
+  it: its value comes from a bound Secret's `TF_VAR_<name>`. The output holds `outputs`, the plain outputs, none
+  required, and `plan`, a plan run's finding. A wrong variable fails the run's creation with 422, naming its path, and
+  the stack shows `InvalidVariables`.
+- **`funcdctl infra outputs <stack> [-n <namespace>] [-o json]`** prints each key of the stack's outputs Secret, with
+  its value when the Job's contract names it among the plain outputs, else `(sensitive)` (funcd ADR-0356 Decision 8).
+
 ## A run
 
-- **The preview** copies the module into a work folder, adds a backend override, and runs `tofu init` against the
-  state, then `tofu plan -out`. It keeps the saved plan beside the state, at `plans/<run>.tfplan`, and answers what the
-  plan adds, changes, replaces and destroys, by address, with `planDigest`, the plan's sha256.
+- **The preview** copies the module into a work folder, without the variables and state files the push refuses, adds
+  a backend override, and runs `tofu init` against the state, then `tofu plan -out`. It keeps the saved plan beside the
+  state, at `plans/<run>.tfplan`, and answers what the plan adds, changes, replaces and destroys, by address, with
+  `planDigest`, the plan's sha256.
 - **The apply**, once approved, reads that saved plan, refuses it when its sha256 is not the approved document's
   `planDigest`, and runs `tofu apply` on it. OpenTofu refuses a plan made before the state last changed. A Job with
   `approval.bypass` plans and applies in one call.
+- **A plan run** (`action: plan`) previews as any run does but keeps no saved plan; the run plans its variables
+  against the state again, applies nothing, writes no output and answers `{"plan": {"add", "change", "destroy",
+  "replace", "resources"}}`, the counts and the first 100 addresses that it would change. A Job without
+  `approval.bypass` asks a person to approve such a run too.
 - **The outputs** (funcd ADR-0356): once the apply is done, the runtime writes every output, plain or sensitive, into
   the Secret that `INFRASTACK_OUTPUTS_SECRET` names, one `ctx.secret.put` each, a string as it is and any other value
   as its JSON. It answers only after the last write, with `{"outputs": {...}}`, the plain ones. A sensitive output is
@@ -96,10 +131,12 @@ gateway's bridge address and port, such as `10.63.0.1:9000`.
   unset.
 - **Encryption** is off unless a bound Secret holds `INFRASTACK_STATE_PASSPHRASE`, at least 16 characters: OpenTofu
   then encrypts the state and the saved plans with a key derived from it.
-- **A run downloads nothing**: the providers come from the image's plugin folder. The image carries OpenTofu 1.13.9 and
-  the providers bunnyway/bunnynet 0.20.2, hashicorp/random 3.6.3 and hashicorp/null 3.2.4, each MPL-2.0, unmodified, and
-  checked against its pinned sha256 (`runtime/pins.json`); `/opt/tofu/NOTICE` names their sources. A module that needs
-  another provider or version fails at `tofu init`.
+- **A run downloads nothing**: `tofu init` installs the providers from the module's `.funcd-providers/`, which the
+  plugin packs, each only when it matches a hash of the module's lock file, else from the image's plugin folder. The
+  image carries OpenTofu 1.13.9 and the providers bunnyway/bunnynet 0.20.2, hashicorp/random 3.6.3 and hashicorp/null
+  3.2.4, each MPL-2.0, unmodified, and checked against its pinned sha256 (`runtime/pins.json`); `/opt/tofu/NOTICE`
+  names their sources. A module pushed by hand that needs another provider or version fails at `tofu init`, and so
+  does a package that matches no hash of the lock file, naming the provider.
 
 ## The reconciler
 
@@ -123,20 +160,25 @@ Addon alone. funcd-functions' frp-bunny App is the example.
 nix develop -c just test-infrastack
 nix develop -c just opentofu-image <funcd-python>/shim
 nix develop -c just opentofu-image-check
+nix develop -c just funcdctl
+nix develop -c just infra-push-check
 ```
 
 `opentofu-image-check` runs the handler with OpenTofu itself, in the image, against versitygw, the S3 engine of funcd's
-gateway: a preview that adds three resources, its approved apply, a second plan that changes nothing, a refused plan
-whose digest is not the approved one, a run past a planted lock, and a destroy, with the state's encryption off and on.
+gateway, on an internal Docker network that reaches nothing else: a preview that adds three resources, its approved
+apply, a second plan that changes nothing, a refused plan whose digest is not the approved one, a run past a planted
+lock, and a destroy, with the state's encryption off and on; then a module that carries its own packed providers, with
+the image's folder out of reach, one whose provider package matches no hash of its lock file, and a plan run.
+`infra-push-check` pushes a module with a local child through the plugin into an OCI layout and reads back the index,
+the contract and each platform's packages. CI runs both.
 The release workflow publishes `ghcr.io/pyvvo/funcd-opentofu` for linux/amd64 and linux/arm64, with the shim of the
 funcd-python release that `pins.json` names.
 
 ## Not yet
 
-- A drift schedule: a stack plans only on a change or a deletion. A drift check's finding has nowhere to go: a run's
-  result must match the module's output contract (funcd ADR-0347), a preview is no result (ADR-0348 Decision 2), and
-  `ctx.job.get` reads a run's phase, reason and result only (ADR-0349 Decision 3). A contract that reserves a drift
-  field, as F143's contract from the module could, would carry it.
-- The module from the stack itself, its contract from its variables, and `funcdctl infra` (F143), with `funcdctl infra
-  outputs` (F144); stacks in an App's rollout (F145).
+- A drift schedule: a stack plans only on a change or a deletion. A plan run answers the finding (funcd ADR-0355
+  Decision 5); when the reconciler starts such runs is F141's.
+- Stacks in an App's rollout (F145).
+- A module under `funcdctl dev` on a Mac: its index has no darwin entry, so it does not materialize there (funcd
+  ADR-0355 Consequences).
 - A waiting apply run of a deleted stack that never applied stays approvable: reject it with `funcdctl job reject`.
