@@ -66,6 +66,8 @@ PLAN = {
     },
     "required": ["add", "change", "destroy", "replace", "resources"],
 }
+# A closed record with no member.
+CLOSED = {"type": "object", "additionalProperties": False}
 PLAIN = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")
 YAML_WORDS = ("true", "false", "null", "yes", "no", "on", "off", "y", "n", "~")
 
@@ -110,8 +112,10 @@ def contract(shown: dict) -> dict:
     plan run's finding."""
     root = shown.get("root_module") or {}
     variables = {name: v for name, v in sorted((root.get("variables") or {}).items()) if not v.get("sensitive")}
+    # The variables record stays closed with no member, so a module whose every variable is sensitive admits none in
+    # a run's input (funcd ADR-0355 Decision 3, amended 2026-11-24).
     inputs = record({name: schema(v.get("type")) for name, v in variables.items()},
-                    sorted(name for name, v in variables.items() if "default" not in v))
+                    sorted(name for name, v in variables.items() if "default" not in v)) or CLOSED
     outputs = {name: {} for name, o in sorted((root.get("outputs") or {}).items()) if not o.get("sensitive")}
     return {
         "runtime": RUNTIME,

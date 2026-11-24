@@ -101,7 +101,8 @@ in the image of the Addon's `opentofu1` runtime, which each release stamps into 
   It prints `<ref>@<digest>`.
 - **The contract** has the input `action`, one of `apply`, `destroy` and `plan`, and `variables`, a closed record of
   the module's variables, the ones with no default required. A sensitive variable is left out, so no run's input holds
-  it: its value comes from a bound Secret's `TF_VAR_<name>`, as in `examples/token-stack.yaml`. The output holds
+  it: its value comes from a bound Secret's `TF_VAR_<name>`, as in `examples/token-stack.yaml`. A module whose every
+  variable is sensitive gets a closed `variables` record with no member, so a run's input sets none. The output holds
   `outputs`, the plain outputs, none required, and `plan`, a plan run's finding. A wrong variable fails the run's
   creation with 422, naming its path, and the stack shows `InvalidVariables`.
 - **`funcdctl infra outputs <stack> [-n <namespace>] [-o json]`** prints each key of the stack's outputs Secret, with
