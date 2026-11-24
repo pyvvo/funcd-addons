@@ -11,9 +11,10 @@ interrupted run left is removed before the run goes on: a Job runs one run at a 
 
 The run's input is ``{"action": "apply" | "destroy", "variables": {...}}``. The Job's bound ConfigMap gives
 ``INFRASTACK_STATE_BUCKET`` and ``INFRASTACK_STATE_PREFIX``, the Bucket and the prefix of its blob binding ``state``,
-and may give ``INFRASTACK_OUTPUTS_SECRET``, the Secret it owns that gets the sensitive outputs. Its bound Secrets give
-OpenTofu its environment, each key in upper case or named ``TF_VAR_<variable>``, and may give
-``INFRASTACK_STATE_PASSPHRASE``, which turns OpenTofu's state and plan encryption on.
+and may give ``INFRASTACK_OUTPUTS_SECRET``, the Secret it owns that gets every output of an apply, one key each (funcd
+ADR-0356). Its bound Secrets give OpenTofu its environment, each key in upper case or named ``TF_VAR_<variable>`` but
+none named as one of the module's outputs, and may give ``INFRASTACK_STATE_PASSPHRASE``, which turns OpenTofu's state
+and plan encryption on.
 """
 
 from __future__ import annotations
@@ -37,6 +38,12 @@ ACTIONS = ("apply", "destroy")
 MAX_RESOURCES = 100
 
 ENV_KEY = re.compile(r"^(?:[A-Z][A-Z0-9_]*|TF_VAR_[A-Za-z0-9_]+)$")
+# An output's name, its key in the outputs Secret: an env-var name, as a Secret key's rule has it (funcd ADR-0356
+# Decision 4).
+OUTPUT_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+# What an output's name may not start with: FUNCD_, which no reader loads (funcd ADR-0327 Decision 7), and INFRASTACK_,
+# the prefix of the runtime's own settings.
+OUTPUT_PREFIXES = ("FUNCD_", "INFRASTACK_")
 LOCK_ID = re.compile(r"Lock Info:.*?ID:\s+(\S+)", re.DOTALL)
 # Never handed to OpenTofu: the Job's state key pair goes in a credentials file of its own, and funcd's own variables
 # stay the shim's.
@@ -45,6 +52,29 @@ WITHHELD = re.compile(r"^(?:AWS_|FUNCD_|INFRASTACK_)")
 
 class StackError(RuntimeError):
     """A run that cannot go on: its message says why, and the run fails with it."""
+
+
+def check_outputs(names: list[str]) -> None:
+    """Refuse a module with an output that cannot be a key of its outputs Secret, naming the first by name (funcd
+    ADR-0356 Decision 4)."""
+    for name in sorted(names):
+        if not OUTPUT_KEY.match(name):
+            raise StackError(f"the module's output {name} is no env-var name, which an output's key must be: rename it")
+        prefix = next((p for p in OUTPUT_PREFIXES if name.startswith(p)), None)
+        if prefix is not None:
+            raise StackError(f"the module's output {name} starts with {prefix}, which an output's key may not: rename it")
+
+
+def write_outputs(context: Any, secret: str, outputs: dict[str, Any]) -> None:
+    """Write each output into the Secret ``secret``, one key each, a string as it is and any other value as its JSON
+    (funcd ADR-0356 Decision 2). A write that funcd refuses fails the run, naming the output and the Secret, never the
+    value (Decision 3)."""
+    for name in sorted(outputs):
+        value = outputs[name]
+        try:
+            context.secret.put(secret, name, value if isinstance(value, str) else json.dumps(value))
+        except Exception as err:  # noqa: BLE001 - any refusal fails the run, which names no value
+            raise StackError(f"the output {name} could not be written to the Secret {secret}: {err}") from None
 
 
 def preview(context: Any, event: dict[str, Any]) -> dict[str, Any]:
@@ -56,7 +86,8 @@ def preview(context: Any, event: dict[str, Any]) -> dict[str, Any]:
 
 
 def handle(context: Any, event: dict[str, Any]) -> dict[str, Any]:
-    """Apply the saved plan of the approved preview, or, with no approval, plan and apply; answer the plain outputs."""
+    """Apply the saved plan of the approved preview, or, with no approval, plan and apply; answer ``{"outputs": {...}}``,
+    the plain outputs, as funcd ADR-0355 Decision 3 has the runtime answer an apply, and ``{}`` for a destroy."""
     run = Run(context, event)
     approval = getattr(context, "approval", None)
     if approval is None:
@@ -86,8 +117,13 @@ class Run:
         self.outputs_secret = context.config.get("INFRASTACK_OUTPUTS_SECRET")
         self.module = Path(os.environ.get("INFRASTACK_MODULE_DIR", "/var/funcd/artifact"))
         self.work = WORK / "module"
+        self._copy()
+        self.env = self._base_env()
+        self.module_outputs = self._module_outputs()
+        if self.action != "destroy":  # a destroy empties only the keys its last apply wrote (funcd ADR-0356 Decision 4)
+            check_outputs(self.module_outputs)
         self.env = self._env()
-        self._prepare()
+        self._init()
 
     @property
     def plan_key(self) -> str:
@@ -138,8 +174,9 @@ class Run:
         (self.work / "plan.tfplan").write_bytes(plan)
 
     def apply(self) -> dict[str, Any]:
-        """Apply the saved plan in the work folder; write the sensitive outputs to the outputs Secret and answer the
-        plain ones."""
+        """Apply the saved plan in the work folder, write every output into the outputs Secret, and answer the plain
+        ones, only after the last write (funcd ADR-0356 Decision 2); a destroy empties the keys of the outputs it read
+        before it and answers none (Decision 5)."""
         before = self.outputs() if self.action == "destroy" else {}
         self.tofu("apply", "-input=false", "-no-color", "-lock-timeout=0s", "plan.tfplan")
         try:
@@ -147,15 +184,16 @@ class Run:
         except Exception as err:  # noqa: BLE001 - a plan left behind is overwritten by the next preview
             print(f"infrastack: could not remove the saved plan {self.plan_key}: {err}")
         if self.action == "destroy":
-            self._forget([name for name, out in before.items() if out.get("sensitive")])
+            self._forget(sorted(before))
             return {}
-        plain: dict[str, Any] = {}
-        for name, out in self.outputs().items():
-            if out.get("sensitive"):
-                self._secret_output(name, out.get("value"))
-            else:
-                plain[name] = out.get("value")
-        return plain
+        outputs = self.outputs()
+        plain = {name: out.get("value") for name, out in outputs.items() if not out.get("sensitive")}
+        if self.outputs_secret:
+            write_outputs(self.context, self.outputs_secret, {name: out.get("value") for name, out in outputs.items()})
+        else:
+            for name in sorted(n for n, out in outputs.items() if out.get("sensitive")):
+                print(f"infrastack: the sensitive output {name} is kept nowhere: the Job names no INFRASTACK_OUTPUTS_SECRET")
+        return {"outputs": plain}
 
     def outputs(self) -> dict[str, Any]:
         """The state's outputs, as ``tofu output -json`` reads them."""
@@ -201,14 +239,20 @@ class Run:
             raise StackError(f"the Job binds no ConfigMap that sets {key}")
         return value
 
-    def _env(self) -> dict[str, str]:
-        """OpenTofu's environment: the worker's own without the state keys and funcd's variables, the bound Secrets'
-        keys in upper case or named TF_VAR_<variable>, and the encryption the passphrase turns on."""
+    def _base_env(self) -> dict[str, str]:
+        """The worker's own environment without the state keys and funcd's variables, for OpenTofu in automation."""
         env = {k: v for k, v in os.environ.items() if not WITHHELD.match(k)}
         env.update({"TF_IN_AUTOMATION": "1", "TF_INPUT": "0", "CHECKPOINT_DISABLE": "1", "HOME": str(WORK)})
+        return env
+
+    def _env(self) -> dict[str, str]:
+        """OpenTofu's environment: the base one, the bound Secrets' keys in upper case or named TF_VAR_<variable> but
+        none named as one of the module's outputs, so no output feeds a run (funcd ADR-0356 Decision 7), and the
+        encryption the passphrase turns on."""
+        env = self._base_env()
         secrets = self.context.secret
         for key in secrets.list():
-            if ENV_KEY.match(key) and not WITHHELD.match(key):
+            if ENV_KEY.match(key) and not WITHHELD.match(key) and key not in self.module_outputs:
                 value = secrets.get(key)
                 if value is not None:
                     env[key] = value
@@ -217,14 +261,22 @@ class Run:
             env["TF_ENCRYPTION"] = _encryption(passphrase)
         return env
 
-    def _prepare(self) -> None:
-        """A fresh copy of the module, the backend override, the run's variables and the state's credentials."""
+    def _copy(self) -> None:
+        """A fresh copy of the module, the backend override and the run's variables."""
         if not self.module.is_dir():
             raise StackError(f"the Job's module folder {self.module} does not exist")
         shutil.rmtree(WORK, ignore_errors=True)
         shutil.copytree(self.module, self.work, ignore=_not_module)
         (self.work / "zz_infrastack_override.tf").write_text('terraform {\n  backend "s3" {}\n}\n', encoding="utf-8")
         (self.work / "run.tfvars.json").write_text(json.dumps(self.variables), encoding="utf-8")
+
+    def _module_outputs(self) -> list[str]:
+        """The names of the module's outputs, from its configuration (``tofu show -json -module``)."""
+        shown = json.loads(self.tofu("show", "-json", "-no-color", "-module=.", echo=False) or "{}")
+        return sorted((shown.get("root_module") or {}).get("outputs") or {})
+
+    def _init(self) -> None:
+        """The state's credentials and backend, and ``tofu init`` against them."""
         key_id, secret = os.environ.get("AWS_ACCESS_KEY_ID"), os.environ.get("AWS_SECRET_ACCESS_KEY")
         endpoint = os.environ.get("AWS_ENDPOINT_URL_S3")
         if not key_id or not secret or not endpoint:
@@ -253,18 +305,9 @@ class Run:
         self.tofu("init", "-input=false", "-no-color", f"-plugin-dir={PLUGINS}", f"-backend-config={WORK / 'backend.hcl'}",
                   "-reconfigure")
 
-    def _secret_output(self, name: str, value: Any) -> None:
-        if not self.outputs_secret:
-            print(f"infrastack: the sensitive output {name} is kept nowhere: the Job names no INFRASTACK_OUTPUTS_SECRET")
-            return
-        text = value if isinstance(value, str) else json.dumps(value)
-        try:
-            self.context.secret.put(self.outputs_secret, name, text)
-        except Exception as err:  # noqa: BLE001 - the apply is done; the output stays in the state
-            print(f"infrastack: could not write the sensitive output {name} to {self.outputs_secret}: {err}")
-
     def _forget(self, names: list[str]) -> None:
-        """Empty the destroyed outputs' keys, which the Job declares and so keeps."""
+        """Empty the destroyed outputs' keys and keep them, so no reader waits for a key again (funcd ADR-0356 Decision
+        5); a refused emptying is logged by the output's name and the run goes on."""
         if not self.outputs_secret:
             return
         for name in names:

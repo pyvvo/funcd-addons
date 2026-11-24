@@ -10,6 +10,7 @@ import hashlib
 import hmac
 import json
 import os
+import shutil
 import sys
 import urllib.error
 import urllib.request
@@ -121,6 +122,15 @@ def create_bucket() -> None:
             raise
 
 
+def gained_module() -> str:
+    """A copy of the module that has since gained an output named pull-zone, which no Secret key may be."""
+    copy = Path("/tmp/gained-module")
+    shutil.rmtree(copy, ignore_errors=True)
+    shutil.copytree(os.environ["INFRASTACK_MODULE_DIR"], copy)
+    (copy / "gained.tf").write_text('output "pull-zone" {\n  value = "gained"\n}\n', encoding="utf-8")
+    return str(copy)
+
+
 def check(cond: bool, what: str) -> None:
     if not cond:
         raise SystemExit(f"FAIL: {what}")
@@ -133,9 +143,12 @@ def main() -> None:
     doc, result = run("random-stack-1", "apply", secret)
     check(doc["add"] == 3 and doc["destroy"] == 0, f"the preview adds three resources: {json.dumps(doc)[:300]}")
     check(doc["planDigest"].startswith("sha256:"), "the preview's document pins the saved plan")
-    check(set(result) == {"name"} and result["name"].startswith("check-"), f"the plain output is the result: {result}")
-    token = secret.written.get("random-stack-outputs", {}).get("token", "")
-    check(len(token) == 24, "the sensitive output went to the outputs Secret, not the result")
+    plain = result.get("outputs", {})
+    check(set(result) == {"outputs"} and set(plain) == {"name"} and plain["name"].startswith("check-"),
+          f"the plain output is the result's outputs: {result}")
+    written = secret.written.get("random-stack-outputs", {})
+    check(len(written.get("token", "")) == 24, "the sensitive output went to the outputs Secret, not the result")
+    check(written.get("name") == plain["name"], "the plain output went to the outputs Secret too")
     check(not (DATA / PREFIX / "plans" / "random-stack-1.tfplan").exists(), "the applied plan is removed")
     state = (DATA / PREFIX / "terraform.tfstate").read_bytes()
     encrypted = bool(os.environ.get("CHECK_PASSPHRASE"))
@@ -158,10 +171,20 @@ def main() -> None:
     doc = handler.preview(Context("random-stack-3", secret), event("apply"))
     check(not lock.exists() and doc["add"] == 0, "a run goes on past a lock that an interrupted run left")
 
-    doc, result = run("random-stack-4", "destroy", secret)
+    module, os.environ["INFRASTACK_MODULE_DIR"] = os.environ["INFRASTACK_MODULE_DIR"], gained_module()
+    try:
+        handler.preview(Context("random-stack-4", secret), event("apply"))
+        check(False, "an output named pull-zone is planned")
+    except handler.StackError as err:
+        check("pull-zone" in str(err), f"an output whose name is no Secret key fails the preview: {err}")
+
+    # scenario: stack-destroy-empties-outputs
+    doc, result = run("random-stack-5", "destroy", secret)
+    os.environ["INFRASTACK_MODULE_DIR"] = module
     check(doc["action"] == "destroy" and doc["destroy"] == 3, f"the destroy's preview removes the three: {doc}")
     check(result == {}, "a destroy answers no output")
-    check(secret.written.get("random-stack-outputs", {}).get("token") == "", "the destroy empties the sensitive output")
+    written = secret.written.get("random-stack-outputs", {})
+    check(written == {"name": "", "token": ""}, f"the destroy empties each output key and keeps it: {sorted(written)}")
     print("PASS", flush=True)
 
 

@@ -23,5 +23,9 @@ output:
   type: object
   additionalProperties: false
   properties:
-    name:
-      type: string
+    outputs:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string

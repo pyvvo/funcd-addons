@@ -46,19 +46,20 @@ A stack is six objects of one namespace; `examples/random-stack.yaml` holds them
 |---|---|
 | a Bucket prefix | the stack's state, its lock and its saved plans; its owner is the stack's Job |
 | a ConfigMap | `INFRASTACK_STATE_BUCKET`, `INFRASTACK_STATE_PREFIX` and, optionally, `INFRASTACK_OUTPUTS_SECRET` |
-| a Secret | the stack's sensitive outputs, written by its Job, which owns it |
+| a Secret | the stack's outputs, plain and sensitive, one key each, written by its Job, which owns it |
 | the Job | the module as its image, on `opentofu1`, with the blob binding `state`, the ConfigMap and the Secrets |
 | the reconciler Function | `bindings.job`: one entry per stack, its alias the Job's name |
 | the InfraStack | `config.job`, `config.variables` and `deletion` |
 
 The Job's image is the module, pushed as a bundle with its contract: `funcdctl push <module> <ref> --entry main.tf`,
 beside `<module>.contract.yaml`, whose runtime is `opentofu1`. A run's input is `{"action": "apply" | "destroy",
-"variables": {...}}`, so the contract's input holds both; its output is the module's plain outputs, none required,
-since a destroy answers none.
+"variables": {...}}`, so the contract's input holds both. Its output holds `outputs`, a closed record of the module's
+plain outputs, none required, since a destroy answers `{}` (funcd ADR-0355 Decision 3).
 
 The Job's bound Secrets give OpenTofu its environment: each key in upper case, such as `BUNNYNET_API_KEY`, and each
 `TF_VAR_<variable>`. A key that starts with `AWS_` never reaches OpenTofu, since the state's S3 key pair takes that
-name.
+name, and neither does a key named as one of the module's outputs, which the runtime reads with `tofu show -json
+-module`, so an output never sets a later run's variable or a provider's setting.
 
 With `server.network.egress` on, the Job reaches its cloud's API only under an EgressPolicy that names it
 (`appliesTo` kind `Job`, funcd ADR-0351), and the S3 gateway only when `server.network.internalAllow` lists the
@@ -72,9 +73,22 @@ gateway's bridge address and port, such as `10.63.0.1:9000`.
 - **The apply**, once approved, reads that saved plan, refuses it when its sha256 is not the approved document's
   `planDigest`, and runs `tofu apply` on it. OpenTofu refuses a plan made before the state last changed. A Job with
   `approval.bypass` plans and applies in one call.
-- **The result** is the plain outputs. The sensitive ones go to `INFRASTACK_OUTPUTS_SECRET`, through `ctx.secret`, and
-  never to the result, a status or a log; a destroy empties them. The Job declares each key it writes, so the
+- **The outputs** (funcd ADR-0356): once the apply is done, the runtime writes every output, plain or sensitive, into
+  the Secret that `INFRASTACK_OUTPUTS_SECRET` names, one `ctx.secret.put` each, a string as it is and any other value
+  as its JSON. It answers only after the last write, with `{"outputs": {...}}`, the plain ones. A sensitive output is
+  in no result, preview, status or log line. A write that funcd refuses, such as for a Secret the Job does not own,
+  fails the run, naming the output and the Secret but no value; the change stays in the state, and the stack's next
+  apply writes every output again. With no `INFRASTACK_OUTPUTS_SECRET`, the plain outputs are in the result alone, and
+  each sensitive one is kept nowhere, which the run logs by its name. The Job declares each key it writes, so the
   Secret holds each key, empty, before the first apply.
+- **An output's name** is its key in the Secret: a letter or `_`, then letters, digits or `_`, starting with neither
+  `FUNCD_`, which no reader loads, nor `INFRASTACK_`, the runtime's own settings. Another name fails a run's first
+  call before it plans, naming the output: rename it in the module. A destroy skips the check.
+- **A destroy** empties each output key it read before the destroy, keeps the key, so no reader waits for it again,
+  and answers `{}`. An emptying that funcd refuses is logged by the output's name, and the run goes on.
+- **The readers**: a Function that binds the outputs Secret reads each output through `ctx.secret`, a changed one at
+  its next read, with no new revision; an add-on object that binds it gets in its engine's environment the keys its
+  Addon lists in `secretKeys`, and a changed value replaces the engine.
 - **The state** is the s3 backend at `<prefix>/terraform.tfstate` in the Bucket, through funcd's S3 gateway, with the
   Job's own key pair (funcd ADR-0351) in a credentials file of the run's own. The lock is OpenTofu's lock file. A Job
   with `concurrency` unset runs one run at a time (funcd ADR-0347), so a lock found at a run's start was left by an
@@ -123,6 +137,6 @@ funcd-python release that `pins.json` names.
   result must match the module's output contract (funcd ADR-0347), a preview is no result (ADR-0348 Decision 2), and
   `ctx.job.get` reads a run's phase, reason and result only (ADR-0349 Decision 3). A contract that reserves a drift
   field, as F143's contract from the module could, would carry it.
-- The module from the stack itself, its contract from its variables, and `funcdctl infra` (F143); plain outputs beyond
-  the run's result (F144); stacks in an App's rollout (F145).
+- The module from the stack itself, its contract from its variables, and `funcdctl infra` (F143), with `funcdctl infra
+  outputs` (F144); stacks in an App's rollout (F145).
 - A waiting apply run of a deleted stack that never applied stays approvable: reject it with `funcdctl job reject`.

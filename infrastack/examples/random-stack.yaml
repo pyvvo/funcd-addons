@@ -1,5 +1,5 @@
 # One stack without an App: its state's Bucket prefix, which its Job owns; the ConfigMap that names it to the OpenTofu
-# runtime; the Secret that gets its sensitive outputs, one key per output; its Job, whose image is the random-stack module pushed with its
+# runtime; the Secret that gets its outputs, plain and sensitive, one key per output; its Job, whose image is the random-stack module pushed with its
 # contract (funcdctl push random-stack <ref> --entry main.tf); the reconciler Function, which binds the Job; and the
 # InfraStack itself.
 apiVersion: funcd.io/v1alpha1
@@ -39,6 +39,7 @@ spec:
     name: random-stack
   # The Job declares the keys it writes, so each exists before its first apply; the apply sets it.
   data:
+    name: ""
     token: ""
 ---
 apiVersion: funcd.io/v1alpha1
@@ -61,6 +62,7 @@ spec:
   secrets:
     - name: random-stack-outputs
       keys:
+        - name
         - token
   bindings:
     blob:
