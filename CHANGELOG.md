@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.0](https://github.com/pyvvo/funcd-addons/compare/v0.4.1...v0.5.0) (2026-11-24)
+
+
+### ⚠ BREAKING CHANGES
+
+* **infrastack:** every output of an apply reaches its readers through the Secret its Job owns (funcd ADR-0356)
+
+### Features
+
+* **infrastack:** an applied stack is checked for drift on its config.drift schedule (F141) ([dedf8da](https://github.com/pyvvo/funcd-addons/commit/dedf8daff3e6c0b9d123f004023a4715f8d84678))
+* **infrastack:** every output of an apply reaches its readers through the Secret its Job owns (funcd ADR-0356) ([dedf8da](https://github.com/pyvvo/funcd-addons/commit/dedf8daff3e6c0b9d123f004023a4715f8d84678))
+* **infrastack:** funcdctl infra push builds a module's bundles with their providers and a contract, a plan run answers what would change, and funcdctl infra outputs prints a stack's outputs (funcd ADR-0355, ADR-0356) ([dedf8da](https://github.com/pyvvo/funcd-addons/commit/dedf8daff3e6c0b9d123f004023a4715f8d84678))
+
 ## [0.4.1](https://github.com/pyvvo/funcd-addons/compare/v0.4.0...v0.4.1) (2026-11-24)
 
 
