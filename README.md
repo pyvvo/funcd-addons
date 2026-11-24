@@ -8,6 +8,7 @@ data into the namespace's backups.
 | Add-on | Kind | What it is |
 |---|---|---|
 | [rauthy](rauthy/) | `IdentityProvider`, and the settings kind `RauthyPasswordPolicy` | An OpenID Connect provider with funcd's look ([pyvvo/funcd-rauthy](https://github.com/pyvvo/funcd-rauthy)), with the funcdctl plugin `funcdctl-rauthy`, as an App template |
+| [infrastack](infrastack/) | `InfraStack`, which runs no engine | OpenTofu stacks: a Function drives one Job per stack on the add-on's OpenTofu runtime, whose runs apply only the plan a person approved |
 
 ## Register one
 
@@ -15,7 +16,7 @@ An admin applies the add-on's `addon.yaml` from a release, which pins each runti
 `funcdctl apply -f -`:
 
 ```sh
-curl -fsSL https://github.com/pyvvo/funcd-addons/releases/download/v0.1.0/rauthy.yaml | funcdctl apply -f -
+curl -fsSL https://github.com/pyvvo/funcd-addons/releases/download/v0.3.0/rauthy.yaml | funcdctl apply -f -
 ```
 
 funcd accepts an image only from the registries its `addons.registries` key lists. Each add-on's README shows its
@@ -27,6 +28,8 @@ objects, the Secret they bind and its plugin.
 |---|---|
 | `<addon>/app/` | The add-on's App template: `addon.yaml`, the Addon (its runtimes: the one that runs its kind, with the engine, the schema of its objects' `spec.config` and its settings kinds), and the App that holds an object of its kind and the Functions beside it |
 | `<addon>/settings/` | The code of its settings kinds' Function, pushed as any Function |
+| `<addon>/reconciler/` | The code of an engineless kind's Function, pushed as any Function |
+| `<addon>/runtime/` | An image the add-on ships as a runtime, which each release builds and pushes to GHCR |
 | `<addon>/examples/` | Objects of its kind, and what uses them |
 | `<addon>/plugin/funcdctl-<addon>/` | Its funcdctl plugin, a Go command that each release builds |
 | `e2e/` | The end-to-end run: each add-on under `funcdctl dev` on Docker |
@@ -36,7 +39,7 @@ objects, the Secret they bind and its plugin.
 
 release-please keeps a release PR open on `main`. Merging it tags `v<version>`, and the release workflow runs the
 end-to-end check on that tag, then attaches each `app/addon.yaml` (as `<addon>.yaml`) and each plugin for Linux and macOS
-to the release.
+to the release, and pushes each add-on's images to GHCR for linux/amd64 and linux/arm64, tagged `<version>`.
 
 ## Develop
 
