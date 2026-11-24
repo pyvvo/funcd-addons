@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/pyvvo/funcd-addons/compare/v0.5.1...v0.6.0) (2026-11-24)
+
+
+### Features
+
+* **infrastack:** examples of a module that takes its sensitive variable from a Secret, and of a Function that reads a stack's outputs ([#19](https://github.com/pyvvo/funcd-addons/issues/19)) ([0c07501](https://github.com/pyvvo/funcd-addons/commit/0c07501d7a7bf6249a06abfd77f95accbfedc6b3))
+
 ## [0.5.1](https://github.com/pyvvo/funcd-addons/compare/v0.5.0...v0.5.1) (2026-11-24)
 
 
