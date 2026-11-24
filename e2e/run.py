@@ -275,7 +275,7 @@ def addon_manifest() -> Path:
     if shortened == text:
         raise RuntimeError("rauthy/app/addon.yaml sets no HQL_BACKUP_CRON")
     # The password policy's resync every 5 s, so the drift check waits seconds.
-    resynced = shortened.replace("      resync: 10m\n", "      resync: 5s\n")
+    resynced = shortened.replace("            resync: 10m\n", "            resync: 5s\n")
     if resynced == shortened:
         raise RuntimeError("rauthy/app/addon.yaml's RauthyPasswordPolicy sets no resync of 10m")
     shortened = resynced
@@ -343,17 +343,17 @@ def f258_register() -> None:
     rc, out = apply(addon_manifest())
     check("F258: a developer cannot register an add-on", rc != 0 and "cluster-scoped" in out, out)
     rc, out = apply(write("addon-by-tag.yaml", (MAN / "addon-whoami.yaml").read_text().replace(WHOAMI, "traefik/whoami:v1.10.3")), ADMIN_TOKEN)
-    check("F258: an image not pinned by digest is refused", rc != 0 and "spec.image" in out, out)
+    check("F258: an image not pinned by digest is refused", rc != 0 and "spec.runtimes[0].image" in out, out)
     outs = [apply(addon_manifest(), ADMIN_TOKEN), apply(MAN / "addon-whoami.yaml", ADMIN_TOKEN)]
     check("F258: an admin registers rauthy and whoami", all(rc == 0 for rc, _ in outs), [o for _, o in outs])
     bad = write("idp-bad-config.yaml", (MAN / "identityprovider.yaml").read_text().replace(
         "    https: false\n", "    https: false\n    colour: blue\n"))
     rc, out = apply(bad)
     check("F258: an object whose config breaks the add-on's schema is refused", rc != 0 and "colour" in out, out)
-    rc, out = apply(write("addon-process.yaml", manifest("Addon", "procthing", f"  kind: ProcThing\n  image: {WHOAMI}\n"
-                                                         "  runtimes:\n    - process\n  port: 80\n  readiness:\n    path: /health\n",
-                                                         cluster=True)), ADMIN_TOKEN)
-    check("F258: an add-on runs only on containerd, so the process runtime is refused", rc != 0 and "runtimes" in out, out)
+    rc, out = apply(write("addon-funcd-runtime.yaml", manifest("Addon", "nodething", f"  runtimes:\n    - name: nodejs22\n"
+                                                               f"      image: {WHOAMI}\n      workloads:\n        - Function\n",
+                                                               cluster=True)), ADMIN_TOKEN)
+    check("ADR-0344: an Addon cannot ship a runtime of funcd's own name", rc != 0 and "spec.runtimes[0].name" in out, out)
 
 
 def f260_run() -> None:

@@ -1,8 +1,8 @@
 # rauthy
 
 [rauthy](https://github.com/sebadob/rauthy) as a funcd add-on: an OpenID Connect provider, from the image
-[pyvvo/funcd-rauthy](https://github.com/pyvvo/funcd-rauthy) builds with funcd's look. It adds the kind
-`IdentityProvider`. funcd runs one rauthy per object, serves it at the object's host under `/auth/v1`, copies its
+[pyvvo/funcd-rauthy](https://github.com/pyvvo/funcd-rauthy) builds with funcd's look. Its Addon ships one
+runtime, `rauthy`, whose workload is `Engine`: it adds the kind `IdentityProvider`. funcd runs one rauthy per object, serves it at the object's host under `/auth/v1`, copies its
 data into the namespace's backups, and signs an App's users in through it with a client it registers itself.
 
 ## Register it

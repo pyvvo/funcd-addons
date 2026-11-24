@@ -12,12 +12,13 @@ Authors".
 
 ## Decisions live in funcd
 
-What an add-on is and how funcd runs it are funcd ADRs (ADR-0332 to ADR-0336). This repository follows them and never
+What an add-on is and how funcd runs it are funcd ADRs (ADR-0332 to ADR-0336, ADR-0344 for the runtimes an Addon
+ships). This repository follows them and never
 decides on its own: a new field or behavior needs a funcd ADR first.
 
 ## Rules
 
-- An Addon pins its image by digest; `just ci` refuses a tag.
+- An Addon pins each runtime's image by digest; `just ci` refuses a tag.
 - YAML is block style: no `{ key: value }` or `[a, b]`, except `{}` or `[]` for an empty value.
 - An `env` value that holds `: ` inside `${{ }}`, such as a ternary, is single-quoted.
 - A plugin is one Go command under `<addon>/plugin/funcdctl-<addon>/`, with its tests; it reaches funcd through

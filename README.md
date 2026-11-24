@@ -1,8 +1,9 @@
 # funcd-addons
 
-Add-ons built outside [funcd](https://github.com/pyvvo/funcd): engines that an admin registers on a running funcd, so
-that its users declare objects of the kind each one adds, as they declare a Lake. funcd runs each object's engine,
-serves it at the edge, and copies its data into the namespace's backups.
+Add-ons built outside [funcd](https://github.com/pyvvo/funcd), which an admin registers on a running funcd. Each one
+ships runtimes: images that Functions and Jobs run on, or whose engine runs one per object of the kind the add-on adds,
+which its users declare as they declare a Lake. funcd runs each object's engine, serves it at the edge, and copies its
+data into the namespace's backups.
 
 | Add-on | Kind | What it is |
 |---|---|---|
@@ -10,7 +11,7 @@ serves it at the edge, and copies its data into the namespace's backups.
 
 ## Register one
 
-An admin applies the add-on's `addon.yaml` from a release, which pins its engine image by digest, piped to
+An admin applies the add-on's `addon.yaml` from a release, which pins each runtime's image by digest, piped to
 `funcdctl apply -f -`:
 
 ```sh
@@ -24,7 +25,7 @@ objects, the Secret they bind and its plugin.
 
 | Path | What |
 |---|---|
-| `<addon>/app/` | The add-on's App template: `addon.yaml`, the Addon (its kind, its engine, the schema of its objects' `spec.config` and its settings kinds), and the App that holds an object of its kind and the Functions beside it |
+| `<addon>/app/` | The add-on's App template: `addon.yaml`, the Addon (its runtimes: the one that runs its kind, with the engine, the schema of its objects' `spec.config` and its settings kinds), and the App that holds an object of its kind and the Functions beside it |
 | `<addon>/settings/` | The code of its settings kinds' Function, pushed as any Function |
 | `<addon>/examples/` | Objects of its kind, and what uses them |
 | `<addon>/plugin/funcdctl-<addon>/` | Its funcdctl plugin, a Go command that each release builds |
