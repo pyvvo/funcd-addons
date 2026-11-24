@@ -81,7 +81,7 @@ lane name: funcd-checkout
         FUNCD_LANES_ROOT='{{justfile_directory()}}' nix develop -c just lima-example '{{name}}'
 
 # funcd's `just lima-example-all`, in the funcd checkout at e2e/funcd.ref, one VM reset and leak-checked between lanes
-# run every lane of e2e/lanes.yaml but the optional ones, in one shared VM; needs colima
+# run every lane of e2e/lanes.yaml but the paid live one (the only optional lane), in one shared VM; needs colima
 lanes: funcd-checkout
     cd "$HOME/.cache/funcd-addons/funcd" && FUNCD_LANES='{{justfile_directory()}}/e2e/lanes.yaml' \
         FUNCD_LANES_ROOT='{{justfile_directory()}}' nix develop -c just lima-example-all
