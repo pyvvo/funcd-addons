@@ -308,6 +308,33 @@ test('a check that has not ended 100 due times on holds the next one no more', a
   assert.ok(ctx.runs.get(driftRunName(minutely, at('2026-11-24T10:41:00Z'))), '101 due times back, it holds no more');
 });
 
+test('a check of the generation due before its apply ended counts for nothing', async () => {
+  const ctx = applied();
+  const stale = driftRunName(drifting(), at('2026-11-24T08:00:00Z'));
+  ctx.runs.set(stale, { name: stale, phase: 'Running', reason: '' });
+  await callAt(ctx, [drifting()], '2026-11-24T09:05:00Z');
+  assert.ok(check(ctx, '2026-11-24T09:00:00Z'), 'a check due before the apply ended holds no later one');
+  const reads = [];
+  const get = ctx.job.get;
+  ctx.job.get = async (alias, name) => {
+    reads.push(name);
+    return get(alias, name);
+  };
+  await callAt(ctx, [drifting()], '2026-11-24T09:06:00Z');
+  assert.deepEqual(reads, ['bunny-edge-g3-9c2e41aa', 'bunny-edge-c3-202611240900-9c2e41aa'], 'nor is it read');
+});
+
+test('a check left unended beside a newer one, as two overlapping calls could leave it, is no finding', async () => {
+  const ctx = applied();
+  for (const iso of ['2026-11-24T10:00:00Z', '2026-11-24T12:00:00Z']) {
+    const name = driftRunName(drifting(), at(iso));
+    ctx.runs.set(name, { name, phase: 'Running', reason: '' });
+  }
+  assert.deepEqual((await callAt(ctx, [drifting()], '2026-11-24T12:30:00Z')).results, [{ name: 'bunny-edge', ok: true }]);
+  assert.deepEqual((await callAt(ctx, [drifting()], '2026-11-24T13:05:00Z')).results, [{ name: 'bunny-edge', ok: true }]);
+  assert.equal(ctx.runs.size, 3, 'the newer one holds the next due time');
+});
+
 test('a check that ended without success is DriftCheckFailed, naming how', async () => {
   for (const phase of ['Failed', 'Rejected', 'Cancelled']) {
     const ctx = applied();

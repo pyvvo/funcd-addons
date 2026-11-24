@@ -16,7 +16,9 @@ const MINUTE = 60_000;
 const MAX_DAYS = 4 * 366 + 1;
 // How many of a finding's addresses a Drifted message names.
 const SHOWN = 5;
-// How many due times a look for the stack's latest check reads back over, one read each.
+// How many due times a look for the stack's latest check reads back over, one read each. The look is bounded because
+// ctx.job has no list (funcd ADR-0349) and a check that nobody approves never ends (funcd ADR-0348 checks expiry only
+// at an approval), so an unbounded look would grow with the time a check waits.
 const LOOKBACK = 100;
 
 const ENDED = new Set(['Succeeded', 'Failed', 'Cancelled', 'Rejected']);
