@@ -1,8 +1,10 @@
-# Path C of funcd's experiment 0027: frpc dials frps over wss through a pull zone, with frp's inner TLS off.
+# Path C of funcd's experiment 0027: frpc dials frps over wss through a pull zone, with frp's inner TLS off. frpc keeps
+# retrying while frps is not up yet, rather than exiting at its first failed login.
 serverAddr = "{{ .Envs.FRP_SERVER_ADDR }}"
 serverPort = {{ .Envs.FRP_SERVER_PORT }}
+loginFailExit = false
 auth.token = "{{ .Envs.FRP_TOKEN }}"
-transport.protocol = "wss"
+transport.protocol = "{{ .Envs.FRP_PROTOCOL }}"
 transport.tls.enable = false
 webServer.addr = "0.0.0.0"
 webServer.port = 7400

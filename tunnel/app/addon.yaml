@@ -21,22 +21,29 @@ spec:
               type: string
             serverPort:
               type: integer
-              default: 443
+              minimum: 1
+              maximum: 65535
+            protocol:
+              type: string
+              enum:
+                - wss
+                - websocket
             host:
               type: string
             hostRewrite:
               type: string
             edge:
               type: string
+              pattern: ^[0-9.]+:[0-9]+$
           required:
             - server
-            - host
             - hostRewrite
             - edge
         env:
           FRP_SERVER_ADDR: ${{ config.server }}
           FRP_SERVER_PORT: '${{ String(config.serverPort ?? 443) }}'
-          FRP_HOST: ${{ config.host }}
+          FRP_PROTOCOL: ${{ config.protocol ?? "wss" }}
+          FRP_HOST: ${{ config.host ?? config.server }}
           FRP_HOST_REWRITE: ${{ config.hostRewrite }}
           FRP_EDGE_IP: '${{ config.edge.split(":")[0] }}'
           FRP_EDGE_PORT: '${{ config.edge.split(":")[1] }}'
