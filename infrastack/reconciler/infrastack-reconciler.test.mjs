@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { reconcile, runName } from './infrastack-reconciler.mjs';
+import { driftRunName, GRAMMAR, latestDue, parseCron, reconcile, reconcileAt, runName } from './infrastack-reconciler.mjs';
 
 class JobError extends Error {
   constructor(status, message) {
@@ -141,4 +141,156 @@ test('a run name is a DNS label of at most 63 characters', () => {
     assert.ok(name.length <= 63, name);
     assert.match(name, /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/);
   }
+});
+
+// Drift checks (F141): a stack whose config.drift holds a cron, its apply run done at APPLIED.
+const APPLIED = '2026-11-24T08:30:00Z';
+const at = (iso) => new Date(iso);
+const drifting = (extra = {}) => stack({ config: { job: 'bunny-edge', variables: { zone: 'funcd-tunnel' }, drift: '0 * * * *' }, ...extra });
+const callAt = (ctx, objects, iso) => reconcileAt(ctx, { data: { kind: 'InfraStack', cause: 'resync', objects } }, at(iso));
+
+// applied is a ctx whose stack's generation run succeeded at APPLIED.
+const applied = () => {
+  const ctx = jobs();
+  ctx.runs.set('bunny-edge-g3-9c2e41aa', { name: 'bunny-edge-g3-9c2e41aa', phase: 'Succeeded', reason: '', endedAt: APPLIED });
+  return ctx;
+};
+
+const check = (ctx, iso) => ctx.runs.get(driftRunName(drifting(), at(iso)));
+
+test('the cron grammar is funcd ADR-0211\'s', () => {
+  for (const text of ['*/15 9-17 * * 1-5', '0 3 * * 7', '0 0 1,15 * *', '5 4 * 2-6/2 *', '@daily', '@weekly', '0 0 29 2 *']) {
+    assert.doesNotThrow(() => parseCron(text), text);
+  }
+  for (const text of ['0 0 * *', '0 0 * * * 2026', '5/10 * * * *', '*/0 * * * *', '60 * * * *', '0 24 * * *', '0 0 0 * *',
+    '0 0 * 13 *', '0 0 * * 8', '* * * * MON', '0 0 L * *', '@every 1h', '0 0 31 2 *', '5-1 * * * *']) {
+    assert.throws(() => parseCron(text), Error, text);
+  }
+  assert.match(GRAMMAR, /ADR-0211/);
+});
+
+test('a due time is the latest minute at or before now at which the cron fires, in UTC', () => {
+  const due = (text, now) => latestDue(parseCron(text), at(now))?.toISOString();
+  assert.equal(due('*/15 9-17 * * 1-5', '2026-11-24T10:07:30Z'), '2026-11-24T10:00:00.000Z');
+  assert.equal(due('*/15 9-17 * * 1-5', '2026-11-24T08:59:00Z'), '2026-11-23T17:45:00.000Z', 'the day before');
+  assert.equal(due('0 * * * *', '2026-11-24T10:00:00Z'), '2026-11-24T10:00:00.000Z', 'a due time on the minute is due');
+  assert.equal(due('0 0 29 2 *', '2026-11-24T10:00:00Z'), '2024-02-29T00:00:00.000Z', 'once in four years');
+  assert.equal(due('0 0 13 * 5', '2026-11-24T10:00:00Z'), '2026-11-20T00:00:00.000Z', 'both day fields: either day fires');
+  assert.equal(due('0 0 13 * *', '2026-11-24T10:00:00Z'), '2026-11-13T00:00:00.000Z');
+  assert.equal(due('0 0 * * 7', '2026-11-24T10:00:00Z'), '2026-11-22T00:00:00.000Z', '7 is Sunday');
+});
+
+test('a stack with no config.drift is checked for no drift', async () => {
+  const ctx = applied();
+  assert.deepEqual((await callAt(ctx, [stack()], '2026-11-24T12:00:00Z')).results, [{ name: 'bunny-edge', ok: true }]);
+  assert.equal(ctx.runs.size, 1);
+});
+
+test('at its due time an applied stack starts one plan run, named after that time, again harmlessly', async () => {
+  const ctx = applied();
+  const { results } = await callAt(ctx, [drifting()], '2026-11-24T10:07:00Z');
+  assert.deepEqual(ctx.started.at(-1), {
+    alias: 'bunny-edge',
+    input: { action: 'plan', variables: { zone: 'funcd-tunnel' } },
+    name: 'bunny-edge-c3-202611241000-9c2e41aa',
+  });
+  assert.deepEqual(results, [{ name: 'bunny-edge', ok: true }], 'a check in flight keeps the stack Ready');
+  await callAt(ctx, [drifting()], '2026-11-24T10:08:00Z');
+  assert.equal(ctx.runs.size, 2, 'a call sent again starts nothing new');
+  await callAt(ctx, [drifting()], '2026-11-24T08:59:00Z');
+  assert.equal(ctx.runs.size, 2, 'a due time before the apply ended starts no check');
+});
+
+test('a finding that would change anything is Drifted, naming the run, the counts and the resources', async () => {
+  const ctx = applied();
+  await callAt(ctx, [drifting()], '2026-11-24T10:07:00Z');
+  const resources = ['random_pet.name', 'null_resource.a', 'null_resource.b', 'null_resource.c', 'null_resource.d', 'null_resource.e'];
+  Object.assign(check(ctx, '2026-11-24T10:00:00Z'), {
+    phase: 'Succeeded', result: { plan: { add: 1, change: 0, destroy: 0, replace: 5, resources } },
+  });
+  const { results } = await callAt(ctx, [drifting()], '2026-11-24T10:09:00Z');
+  assert.deepEqual(results, [{
+    name: 'bunny-edge', ok: false, reason: 'Drifted',
+    message: 'drift check bunny-edge-c3-202611241000-9c2e41aa finds 1 to add, 5 to replace: random_pet.name, ' +
+      'null_resource.a, null_resource.b, null_resource.c, null_resource.d and 1 more',
+  }]);
+  Object.assign(check(ctx, '2026-11-24T10:00:00Z'), { result: { plan: { add: 0, change: 0, destroy: 0, replace: 0, resources: [] } } });
+  assert.deepEqual((await callAt(ctx, [drifting()], '2026-11-24T10:10:00Z')).results, [{ name: 'bunny-edge', ok: true }]);
+});
+
+test('the next check keeps the last finding while it runs', async () => {
+  const ctx = applied();
+  await callAt(ctx, [drifting()], '2026-11-24T10:07:00Z');
+  Object.assign(check(ctx, '2026-11-24T10:00:00Z'), { phase: 'Succeeded', result: { plan: { add: 0, change: 1, destroy: 0, replace: 0, resources: ['random_pet.name'] } } });
+  const { results } = await callAt(ctx, [drifting()], '2026-11-24T11:01:00Z');
+  assert.ok(check(ctx, '2026-11-24T11:00:00Z'), 'the next due time starts its check');
+  assert.equal(results[0].reason, 'Drifted', 'the last finding stands while the next check runs');
+  check(ctx, '2026-11-24T11:00:00Z').phase = 'Running';
+  assert.equal((await callAt(ctx, [drifting()], '2026-11-24T11:02:00Z')).results[0].reason, 'Drifted');
+});
+
+test('a check that awaits approval says so, and the next due time waits for it', async () => {
+  const ctx = applied();
+  await callAt(ctx, [drifting()], '2026-11-24T10:07:00Z');
+  check(ctx, '2026-11-24T10:00:00Z').phase = 'AwaitingApproval';
+  const { results } = await callAt(ctx, [drifting()], '2026-11-24T10:30:00Z');
+  assert.deepEqual(results, [{
+    name: 'bunny-edge', ok: false, reason: 'AwaitingApproval',
+    message: 'drift check bunny-edge-c3-202611241000-9c2e41aa awaits approval: funcdctl job approve bunny-edge-c3-202611241000-9c2e41aa',
+  }]);
+  const { results: later } = await callAt(ctx, [drifting()], '2026-11-24T11:05:00Z');
+  assert.equal(check(ctx, '2026-11-24T11:00:00Z'), undefined, 'one check at a time');
+  assert.equal(later[0].reason, 'AwaitingApproval');
+  check(ctx, '2026-11-24T10:00:00Z').phase = 'Running';
+  assert.deepEqual((await callAt(ctx, [drifting()], '2026-11-24T11:06:00Z')).results, [{ name: 'bunny-edge', ok: true }]);
+  assert.equal(check(ctx, '2026-11-24T11:00:00Z'), undefined);
+});
+
+test('a check that ended without success is DriftCheckFailed, naming how', async () => {
+  for (const phase of ['Failed', 'Rejected', 'Cancelled']) {
+    const ctx = applied();
+    await callAt(ctx, [drifting()], '2026-11-24T10:07:00Z');
+    Object.assign(check(ctx, '2026-11-24T10:00:00Z'), { phase, reason: 'PreviewFailed' });
+    const { results } = await callAt(ctx, [drifting()], '2026-11-24T10:09:00Z');
+    assert.equal(results[0].reason, 'DriftCheckFailed', phase);
+    assert.match(results[0].message, new RegExp(`${phase.toLowerCase()}: PreviewFailed`));
+  }
+});
+
+test('a stack not yet applied, or deleting, starts no check', async () => {
+  const ctx = jobs();
+  await callAt(ctx, [drifting()], '2026-11-24T10:07:00Z');
+  assert.deepEqual(ctx.started.map((s) => s.name), ['bunny-edge-g3-9c2e41aa'], 'only the apply run');
+  const done = applied();
+  await callAt(done, [drifting({ deleting: true })], '2026-11-24T10:07:00Z');
+  assert.deepEqual(done.started.map((s) => s.input.action), ['destroy']);
+  Object.assign(done.runs.get('bunny-edge-d3-9c2e41aa'), { phase: 'Succeeded', endedAt: '2026-11-24T10:08:00Z' });
+  const { results } = await callAt(done, [drifting({ deleting: true })], '2026-11-24T11:01:00Z');
+  assert.deepEqual(results, [{ name: 'bunny-edge', ok: true }], 'a destroyed stack goes');
+  assert.deepEqual(done.started.map((s) => s.input.action), ['destroy', 'destroy'], 'and is checked for no drift');
+});
+
+test('a refused check names its cause, and a config.drift off the grammar is ConfigInvalid', async () => {
+  const ctx = applied();
+  const start = ctx.job.start;
+  ctx.job.start = async (alias, input, name) => {
+    if (input.action === 'plan') throw new JobError(403, 'refused 403');
+    return start(alias, input, name);
+  };
+  const { results } = await callAt(ctx, [drifting()], '2026-11-24T10:07:00Z');
+  assert.equal(results[0].reason, 'JobNotBound');
+  assert.match(results[0].message, /drift check bunny-edge-c3-202611241000-9c2e41aa/);
+  const bad = drifting({ config: { job: 'bunny-edge', drift: '@every 1h' } });
+  const { results: refused } = await callAt(applied(), [bad], '2026-11-24T10:07:00Z');
+  assert.equal(refused[0].reason, 'ConfigInvalid');
+  assert.match(refused[0].message, /^config\.drift: it has 2 fields; a cron is five fields/);
+});
+
+test("a drift check's name is a DNS label of at most 63 characters, of the generation and the due time", () => {
+  const long = stack({ name: `${'a'.repeat(50)}-${'b'.repeat(12)}`, generation: 12345 });
+  const name = driftRunName(long, at('2026-11-24T10:00:00Z'));
+  assert.ok(name.length <= 63, name);
+  assert.match(name, /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/);
+  assert.match(name, /-c12345-202611241000-9c2e41aa$/);
+  assert.notEqual(driftRunName(stack(), at('2026-11-24T10:00:00Z')), driftRunName(stack({ generation: 4 }), at('2026-11-24T10:00:00Z')));
 });

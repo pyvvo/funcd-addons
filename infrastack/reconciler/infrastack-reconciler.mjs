@@ -5,8 +5,17 @@
 // ADR-0348). A stack reports its run: Ready once the run of its generation succeeded, and a deleting stack goes once its
 // destroy succeeded. A run's name comes from the stack's uid and generation, so a call sent again starts no new run,
 // and a destroy starts only once the apply run of the stack's generation has ended. Every cause is handled alike.
+//
+// A stack whose config.drift holds a cron (funcd ADR-0211's grammar, in UTC) is checked for drift once it is applied:
+// at its latest due time since its apply ended, a run with action plan (funcd ADR-0355 Decision 5), named after that
+// time, one at a time; a finding that would change anything is the stack's Drifted.
 
 const NAME_MAX = 63;
+const MINUTE = 60_000;
+// How far back a due time is looked for: an accepted cron fires within four years, 29 February's included.
+const MAX_DAYS = 4 * 366 + 1;
+// How many of a finding's addresses a Drifted message names.
+const SHOWN = 5;
 
 const ENDED = new Set(['Succeeded', 'Failed', 'Cancelled', 'Rejected']);
 
@@ -73,7 +82,164 @@ const applyRun = async (ctx, stack) => {
   }
 };
 
-const reconcileOne = async (ctx, stack) => {
+const MACROS = {
+  '@yearly': '0 0 1 1 *',
+  '@annually': '0 0 1 1 *',
+  '@monthly': '0 0 1 * *',
+  '@weekly': '0 0 * * 0',
+  '@daily': '0 0 * * *',
+  '@midnight': '0 0 * * *',
+  '@hourly': '0 * * * *',
+};
+
+const FIELDS = [
+  ['minute', 0, 59],
+  ['hour', 0, 23],
+  ['day of month', 1, 31],
+  ['month', 1, 12],
+  ['day of week', 0, 7],
+];
+
+export const GRAMMAR =
+  'five fields, minute hour day-of-month month day-of-week, each a comma list of *, n or a-b, the * and a-b with an ' +
+  'optional /step, or one of @yearly, @annually, @monthly, @weekly, @daily, @midnight and @hourly (funcd ADR-0211)';
+
+const field = (text, [name, lo, hi]) => {
+  const values = new Set();
+  for (const item of text.split(',')) {
+    const m = /^(?:(\*)|(\d+)(?:-(\d+))?)(?:\/(\d+))?$/.exec(item);
+    if (!m || (m[4] !== undefined && m[2] !== undefined && m[3] === undefined)) {
+      throw new Error(`the ${name} field holds ${JSON.stringify(item)}`);
+    }
+    const from = m[1] ? lo : Number(m[2]);
+    const to = m[1] ? hi : Number(m[3] ?? m[2]);
+    const step = Number(m[4] ?? 1);
+    if (from < lo || to > hi || from > to || step < 1) {
+      throw new Error(`the ${name} field holds ${JSON.stringify(item)}, outside ${lo}-${hi}`);
+    }
+    for (let v = from; v <= to; v += step) values.add(v);
+  }
+  return values;
+};
+
+const DAYS_IN = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+// parseCron parses a cron of funcd ADR-0211's grammar, refusing what it refuses, an expression that never fires
+// included, and throws an Error that names why.
+export const parseCron = (text) => {
+  const expr = MACROS[String(text).trim()] ?? String(text).trim();
+  const parts = expr.split(/[ \t]+/);
+  if (parts.length !== 5) throw new Error(`it has ${parts.length} fields`);
+  const [minutes, hours, doms, months, dows] = parts.map((p, i) => field(p, FIELDS[i]));
+  if (dows.delete(7)) dows.add(0);
+  const or = !parts[2].startsWith('*') && !parts[4].startsWith('*');
+  if (!or && ![...months].some((month) => [...doms].some((dom) => dom <= DAYS_IN[month - 1]))) {
+    throw new Error('its days of month and months share no date');
+  }
+  return { minutes, hours, doms, months, dows, or };
+};
+
+const firesOn = (cron, day) => {
+  if (!cron.months.has(day.getUTCMonth() + 1)) return false;
+  const dom = cron.doms.has(day.getUTCDate());
+  const dow = cron.dows.has(day.getUTCDay());
+  return cron.or ? dom || dow : dom && dow;
+};
+
+// latestDue is the latest time at or before at, to the minute, at which cron fires in UTC, or null.
+export const latestDue = (cron, at) => {
+  const now = new Date(Math.floor(at.getTime() / MINUTE) * MINUTE);
+  for (let back = 0; back <= MAX_DAYS; back++) {
+    const day = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - back));
+    if (!firesOn(cron, day)) continue;
+    for (let hour = back === 0 ? now.getUTCHours() : 23; hour >= 0; hour--) {
+      if (!cron.hours.has(hour)) continue;
+      const last = back === 0 && hour === now.getUTCHours() ? now.getUTCMinutes() : 59;
+      for (let minute = last; minute >= 0; minute--) {
+        if (cron.minutes.has(minute)) {
+          return new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), hour, minute));
+        }
+      }
+    }
+  }
+  return null;
+};
+
+// driftRunName is the stack's drift check due at due: <name>-c<generation>-<YYYYMMDDHHMM>-<uid>, a DNS label of at
+// most 63 characters.
+export const driftRunName = (stack, due) => {
+  const uid = String(stack.uid).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8);
+  const stamp = due.toISOString().slice(0, 16).replace(/[-T:]/g, '');
+  const tag = `c${stack.generation}-${stamp}-${uid}`;
+  const base = stack.name.slice(0, NAME_MAX - tag.length - 1).replace(/-+$/, '');
+  return `${base}-${tag}`;
+};
+
+const getRun = async (ctx, stack, name) => {
+  try {
+    return await ctx.job.get(stack.config.job, name);
+  } catch (err) {
+    if (err?.status === 404) return null;
+    throw err;
+  }
+};
+
+// finding is a drift check's report: Drifted when its plan would change anything, else Ready.
+const finding = (run) => {
+  if (run.phase !== 'Succeeded') {
+    return { ok: false, reason: 'DriftCheckFailed', message: `drift check ${run.name} ${run.phase.toLowerCase()}${run.reason ? `: ${run.reason}` : ''}` };
+  }
+  const plan = run.result?.plan ?? {};
+  const counts = ['add', 'change', 'destroy', 'replace'].filter((k) => plan[k] > 0).map((k) => `${plan[k]} to ${k}`);
+  if (counts.length === 0) return { ok: true };
+  const resources = plan.resources ?? [];
+  const more = resources.length > SHOWN ? ` and ${resources.length - SHOWN} more` : '';
+  return {
+    ok: false,
+    reason: 'Drifted',
+    message: `drift check ${run.name} finds ${counts.join(', ')}: ${resources.slice(0, SHOWN).join(', ')}${more}`,
+  };
+};
+
+const awaiting = (run) => ({
+  ok: false,
+  reason: 'AwaitingApproval',
+  message: `drift check ${run.name} awaits approval: funcdctl job approve ${run.name}`,
+});
+
+// drift checks an applied stack against its config.drift: at its latest due time since apply ended, it starts a plan
+// run named after that time, unless the check of the due time before it has not ended, and reports the latest check
+// that has ended, or one that awaits approval.
+const drift = async (ctx, stack, apply, now) => {
+  let cron;
+  try {
+    cron = parseCron(stack.config.drift);
+  } catch (err) {
+    return { ok: false, reason: 'ConfigInvalid', message: `config.drift: ${err.message}; a cron is ${GRAMMAR}` };
+  }
+  const applied = apply.endedAt ? new Date(apply.endedAt) : new Date(0);
+  const due = latestDue(cron, now);
+  if (!due || due < applied) return { ok: true };
+  const before = latestDue(cron, new Date(due.getTime() - MINUTE));
+  const name = driftRunName(stack, due);
+  try {
+    let run = await getRun(ctx, stack, name);
+    const prev = before && before >= applied ? await getRun(ctx, stack, driftRunName(stack, before)) : null;
+    if (!run) {
+      if (prev && !ENDED.has(prev.phase)) return prev.phase === 'AwaitingApproval' ? awaiting(prev) : { ok: true };
+      await ctx.job.start(stack.config.job, { action: 'plan', variables: stack.config.variables ?? {} }, name);
+      run = await ctx.job.get(stack.config.job, name);
+    }
+    if (ENDED.has(run.phase)) return finding(run);
+    if (run.phase === 'AwaitingApproval') return awaiting(run);
+    return prev && ENDED.has(prev.phase) ? finding(prev) : { ok: true };
+  } catch (err) {
+    const reason = START_REFUSED[err?.status] ?? 'RunStartFailed';
+    return { ok: false, reason, message: `drift check ${name} of the Job bound as ${stack.config.job}: ${err?.message ?? err}` };
+  }
+};
+
+const reconcileOne = async (ctx, stack, now) => {
   if (!stack.config?.job) {
     return { ok: false, reason: 'ConfigInvalid', message: 'config.job names no Job binding' };
   }
@@ -92,15 +258,18 @@ const reconcileOne = async (ctx, stack) => {
   const action = stack.deleting ? 'destroy' : 'apply';
   const { run, failed } = await drive(ctx, stack, action);
   if (failed) return { ok: false, ...failed };
-  if (run.phase === 'Succeeded') return { ok: true };
+  if (run.phase === 'Succeeded') return action === 'apply' && stack.config.drift ? drift(ctx, stack, run, now) : { ok: true };
   return { ok: false, ...(ENDED.has(run.phase) ? ended(run, action) : waiting(stack, run, action)) };
 };
 
-export const reconcile = async (ctx, event) => {
+// reconcileAt answers a call at the time now.
+export const reconcileAt = async (ctx, event, now) => {
   const stacks = event.data?.objects ?? [];
   const results = [];
   for (const stack of stacks) {
-    results.push({ name: stack.name, ...(await reconcileOne(ctx, stack)) });
+    results.push({ name: stack.name, ...(await reconcileOne(ctx, stack, now)) });
   }
   return { results };
 };
+
+export const reconcile = (ctx, event) => reconcileAt(ctx, event, new Date());

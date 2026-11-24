@@ -27,5 +27,8 @@ spec:
             job:
               type: string
             variables: {}
+            # A cron of funcd ADR-0211's grammar, in UTC: when the reconciler checks an applied stack for drift.
+            drift:
+              type: string
           required:
             - job

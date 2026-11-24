@@ -41,7 +41,7 @@ infrastack/
 handler of `runtime/`. `infrastack` serves `Engineless`: it adds the kind `InfraStack`, whose Function is
 `infrastack-reconciler`, with a resync of one minute, so a run that turns `AwaitingApproval` shows on its stack within
 a minute. A stack's `spec.config` holds `job`, the alias under which the reconciler binds the stack's Job, the same as
-the Job's name, and `variables`, the module's variables.
+the Job's name, `variables`, the module's variables, and `drift`, an optional schedule of drift checks.
 
 ## A stack
 
@@ -156,6 +156,26 @@ the run of its generation to end, then starts `<stack>-d<generation>-<uid>`, whi
 succeeded. A refused start shows `JobNotBound`, `JobNotFound`, `InvalidVariables`, `RunNameTaken`, `InputTooLarge` or
 `RunStartFailed`.
 
+## Drift checks
+
+A stack whose `config.drift` holds a cron is checked for drift once the run of its generation has applied it (F141).
+The cron takes funcd's grammar (funcd ADR-0211): five fields, minute, hour, day of month, month and day of week, each a
+comma list of `*`, `n` or `a-b`, `*` and `a-b` with an optional `/step`, or a macro such as `@daily`; it runs in UTC.
+Unset, a stack is never checked; another value shows `ConfigInvalid`, naming why.
+
+- **The check**: at the latest due time since the apply ended, the reconciler starts a run with `action: plan`, named
+  `<stack>-c<generation>-<YYYYMMDDHHMM>-<uid>` after that time, so a call sent again starts nothing new. It applies
+  nothing and answers what would change (funcd ADR-0355 Decision 5). One check runs at a time: a due time comes while
+  the check before it has not ended starts none, and a due time missed while funcd was down starts one check, late.
+- **The approval**: a plan run waits for a person's approval as every run does unless its Job says `approval.bypass`
+  (funcd ADR-0348 Decisions 1 and 2), so a stack checked on a schedule has a Job with `bypass`, or someone who
+  approves each check. A check that waits shows `AwaitingApproval`, with its `funcdctl job approve` line.
+- **The report**: a stack is `Ready` while its last ended check found nothing to change, and shows `Drifted` once one
+  finds any, naming the run, its counts and its first five addresses, until a later check finds none or a new
+  generation applies. A check that ends without success shows `DriftCheckFailed`. While a check runs, the stack keeps
+  what the check before it found. An answer's `ok` carries no reason (funcd ADR-0341 Decision 4), so drift is a
+  stack's `Ready False`.
+
 ## In an App
 
 An App holds a stack as it holds the six objects above (funcd ADR-0350 for its Job): its template's `images` name the
@@ -184,8 +204,6 @@ funcd-python release that `pins.json` names.
 
 ## Not yet
 
-- A drift schedule: a stack plans only on a change or a deletion. A plan run answers the finding (funcd ADR-0355
-  Decision 5); when the reconciler starts such runs is F141's.
 - Stacks in an App's rollout (F145).
 - A module under `funcdctl dev` on a Mac: its index has no darwin entry, so it does not materialize there (funcd
   ADR-0355 Consequences).
