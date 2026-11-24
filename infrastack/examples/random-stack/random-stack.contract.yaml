@@ -1,0 +1,27 @@
+runtime: opentofu1
+input:
+  type: object
+  additionalProperties: false
+  properties:
+    action:
+      type: string
+      enum:
+        - apply
+        - destroy
+    variables:
+      type: object
+      additionalProperties: false
+      properties:
+        prefix:
+          type: string
+      required:
+        - prefix
+  required:
+    - action
+    - variables
+output:
+  type: object
+  additionalProperties: false
+  properties:
+    name:
+      type: string
