@@ -161,7 +161,7 @@ def main() -> None:
     doc, result = run("random-stack-4", "destroy", secret)
     check(doc["action"] == "destroy" and doc["destroy"] == 3, f"the destroy's preview removes the three: {doc}")
     check(result == {}, "a destroy answers no output")
-    check("token" not in secret.written.get("random-stack-outputs", {}), "the destroy removes the sensitive output")
+    check(secret.written.get("random-stack-outputs", {}).get("token") == "", "the destroy empties the sensitive output")
     print("PASS", flush=True)
 
 

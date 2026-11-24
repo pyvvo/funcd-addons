@@ -9,10 +9,7 @@ Job says `approval.bypass` (funcd ADR-0348), and it applies only the plan that t
 infrastack/
 ├── README.md
 ├── app/
-│   ├── addon.yaml
-│   ├── app.yaml
-│   └── resources/
-│       └── stack.yaml
+│   └── addon.yaml
 ├── examples/
 │   ├── random-stack/
 │   │   ├── main.tf
@@ -72,7 +69,8 @@ name.
   `planDigest`, and runs `tofu apply` on it. OpenTofu refuses a plan made before the state last changed. A Job with
   `approval.bypass` plans and applies in one call.
 - **The result** is the plain outputs. The sensitive ones go to `INFRASTACK_OUTPUTS_SECRET`, through `ctx.secret`, and
-  never to the result, a status or a log; a destroy removes them.
+  never to the result, a status or a log; a destroy empties them. The Job declares each key it writes, so the
+  Secret holds each key, empty, before the first apply.
 - **The state** is the s3 backend at `<prefix>/terraform.tfstate` in the Bucket, through funcd's S3 gateway, with the
   Job's own key pair (funcd ADR-0351) in a credentials file of the run's own. The lock is OpenTofu's lock file. A Job
   runs one run at a time, so a lock found at a run's start was left by an interrupted run: the runtime removes it with
@@ -94,11 +92,11 @@ the run of its generation to end, then starts `<stack>-d<generation>-<uid>`, whi
 succeeded. A refused start shows `JobNotBound`, `JobNotFound`, `InvalidVariables`, `RunNameTaken`, `InputTooLarge` or
 `RunStartFailed`.
 
-## The App template
+## In an App
 
-`app/` deploys one stack per App: values `registry`, `module` (the module's bundle), `variables` and `bypass`. The
-outputs Secret `<app>-outputs`, owned by the Job `<app>`, must exist before the deploy. The template has not been
-rendered or deployed yet.
+An App holds a stack as it holds the six objects above (funcd ADR-0350 for its Job): its template's `images` name the
+module's bundle and the reconciler, since a template's Job and Function take only its own images, so `app/` holds the
+Addon alone. funcd-functions' frp-bunny App is the example.
 
 ## Build and check
 

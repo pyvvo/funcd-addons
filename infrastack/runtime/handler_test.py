@@ -205,11 +205,11 @@ class HandlerTest(unittest.TestCase):
         self.assertEqual(handler.handle(fake, event()), {"name": "check-pet"})
         self.assertEqual([c["args"][0] for c in self.calls()], ["init", "plan", "apply", "output"])
 
-    def test_a_destroy_forgets_the_sensitive_outputs(self):
+    def test_a_destroy_empties_the_sensitive_outputs(self):
         fake = Fake()
         fake.written = {"edge-outputs": {"token": "s3cret-token", "ports": "[7000]", "other": "x"}}
         self.assertEqual(handler.handle(fake, event("destroy")), {})
-        self.assertEqual(fake.written["edge-outputs"], {"other": "x"})
+        self.assertEqual(fake.written["edge-outputs"], {"token": "", "ports": "", "other": "x"})
 
     def test_a_lock_an_interrupted_run_left_is_removed_once(self):
         (self.state / "locked").write_text("6a8b1c3d-0000-4000-8000-000000000001", encoding="utf-8")

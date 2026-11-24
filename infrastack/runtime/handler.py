@@ -264,13 +264,14 @@ class Run:
             print(f"infrastack: could not write the sensitive output {name} to {self.outputs_secret}: {err}")
 
     def _forget(self, names: list[str]) -> None:
+        """Empty the destroyed outputs' keys, which the Job declares and so keeps."""
         if not self.outputs_secret:
             return
         for name in names:
             try:
-                self.context.secret.delete(self.outputs_secret, name)
+                self.context.secret.put(self.outputs_secret, name, "")
             except Exception as err:  # noqa: BLE001 - a key left behind names an output that is gone
-                print(f"infrastack: could not remove the output {name} from {self.outputs_secret}: {err}")
+                print(f"infrastack: could not empty the output {name} in {self.outputs_secret}: {err}")
 
 
 def _not_module(_folder: str, names: list[str]) -> list[str]:
