@@ -393,17 +393,18 @@ class PluginTest(unittest.TestCase):
             "configmap/edge-b": {"spec": {"data": {"INFRASTACK_OUTPUTS_SECRET": "edge-outputs"}}},
             "secret/edge-outputs": {"spec": {"data": {"host": b64("a.b-cdn.net"), "FRP_TOKEN": b64("s3cret"),
                                                       "extra": b64("unnamed")}}}})
-        self.assertEqual(infra.outputs("edge", "team-a"), {"FRP_TOKEN": "(sensitive)", "extra": "(sensitive)",
-                                                         "host": "a.b-cdn.net"})
+        self.assertEqual(infra.outputs("edge", "team-a"), ({"host": "a.b-cdn.net"}, ["FRP_TOKEN", "extra"]))
         self.assertEqual(self.funcd_calls()[0]["args"], ["get", "infrastack", "edge", "-n", "team-a", "-o", "json"])
         with mock.patch("builtins.print") as said:
             self.assertEqual(infra.main(["outputs", "edge", "-n", "team-a"]), 0)
         printed = "\n".join(str(c.args[0]) for c in said.call_args_list)
-        self.assertEqual(printed, "FRP_TOKEN: (sensitive)\nextra: (sensitive)\nhost: a.b-cdn.net")
+        self.assertEqual(printed, "NAME       VALUE\nhost       a.b-cdn.net\nFRP_TOKEN  (sensitive)\nextra      (sensitive)")
         self.assertNotIn("s3cret", printed)
         with mock.patch("builtins.print") as said:
             infra.main(["outputs", "edge", "-n", "team-a", "-o", "json"])
-        self.assertEqual(json.loads(said.call_args.args[0])["host"], "a.b-cdn.net")
+        self.assertEqual(json.loads(said.call_args.args[0]),
+                         {"outputs": {"host": "a.b-cdn.net"}, "sensitive": ["FRP_TOKEN", "extra"]})
+        self.assertNotIn("s3cret", said.call_args.args[0])
 
     def test_a_refused_read_ends_outputs_with_funcdctls_error(self):
         self.objects(**{"infrastack/edge": {"spec": {"config": {"job": "edge"}}}})

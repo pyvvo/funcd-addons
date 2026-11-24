@@ -93,7 +93,15 @@ in the image of the Addon's `opentofu1` runtime, which each release stamps into 
   required, and `plan`, a plan run's finding. A wrong variable fails the run's creation with 422, naming its path, and
   the stack shows `InvalidVariables`.
 - **`funcdctl infra outputs <stack> [-n <namespace>] [-o json]`** prints each key of the stack's outputs Secret, with
-  its value when the Job's contract names it among the plain outputs, else `(sensitive)` (funcd ADR-0356 Decision 8).
+  its value when the Job's contract names it among the plain outputs, else `(sensitive)` (funcd ADR-0356 Decision 8):
+
+  ```text
+  NAME           VALUE
+  pullzone_host  frp-lane.b-cdn.net
+  FRP_TOKEN      (sensitive)
+  ```
+
+  With `-o json` it prints `{"outputs": {"pullzone_host": "frp-lane.b-cdn.net"}, "sensitive": ["FRP_TOKEN"]}`.
 
 ## A run
 

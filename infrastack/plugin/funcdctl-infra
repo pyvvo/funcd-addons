@@ -336,7 +336,16 @@ def outputs(stack: str, namespace: str) -> dict:
     if not secret:
         raise InfraError(f"the Job {namespace}/{job_name} binds no ConfigMap that names {OUTPUTS_SECRET}")
     data = (get("secret", secret, namespace).get("spec") or {}).get("data") or {}
-    return {key: base64.b64decode(data[key]).decode() if key in plain else SENSITIVE for key in sorted(data)}
+    shown = {key: base64.b64decode(data[key]).decode() for key in sorted(data) if key in plain}
+    return shown, [key for key in sorted(data) if key not in plain]
+
+
+def outputs_table(shown: dict, sensitive: list) -> str:
+    """The NAME VALUE table of funcd ADR-0356's Contracts: the plain outputs with their values, then each other key
+    as (sensitive)."""
+    rows = [("NAME", "VALUE")] + list(shown.items()) + [(key, SENSITIVE) for key in sensitive]
+    width = max(len(name) for name, _ in rows) + 2
+    return "\n".join(f"{name:<{width}}{value}" for name, value in rows)
 
 
 def main(argv: list) -> int:
@@ -354,12 +363,11 @@ def main(argv: list) -> int:
         if args.command == "push":
             print(push(Path(args.module), args.ref))
         else:
-            got = outputs(args.stack, args.namespace)
+            shown, sensitive = outputs(args.stack, args.namespace)
             if args.output == "json":
-                print(json.dumps(got, indent=2))
+                print(json.dumps({"outputs": shown, "sensitive": sensitive}, indent=2))
             else:
-                for key, value in got.items():
-                    print(f"{key}: {value}")
+                print(outputs_table(shown, sensitive))
     except InfraError as err:
         print(f"funcdctl infra: {err}", file=sys.stderr)
         return 1
