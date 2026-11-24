@@ -60,6 +60,10 @@ The Job's bound Secrets give OpenTofu its environment: each key in upper case, s
 `TF_VAR_<variable>`. A key that starts with `AWS_` never reaches OpenTofu, since the state's S3 key pair takes that
 name.
 
+With `server.network.egress` on, the Job reaches its cloud's API only under an EgressPolicy that names it
+(`appliesTo` kind `Job`, funcd ADR-0351), and the S3 gateway only when `server.network.internalAllow` lists the
+gateway's bridge address and port, such as `10.63.0.1:9000`.
+
 ## A run
 
 - **The preview** copies the module into a work folder, adds a backend override, and runs `tofu init` against the
