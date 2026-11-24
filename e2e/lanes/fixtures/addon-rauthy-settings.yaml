@@ -11,6 +11,8 @@ spec:
   runtime: nodejs22
   handler: reconcile
   image: oci-layout:///mnt/funcd-deps/registry/rauthy-settings:0.2.0
+  ingress:
+    enabled: false
   secrets:
     - name: rauthy-keys
       keys:
