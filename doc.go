@@ -1,7 +1,7 @@
 // Package addons holds the add-ons built outside funcd that an admin registers on a running funcd (funcd
 // ADR-0332), one folder each: its Addon, its examples and its funcdctl plugin. funcd pins this module in its go.mod,
-// as it pins funcd-functions (ADR-0141), and reads its files from the module cache: its tests decode every Addon here,
-// and its lanes register them.
+// as it pins funcd-functions (ADR-0141), and reads its files from the module cache: its tests decode every Addon here.
+// The lanes that run the add-ons on containerd are this repository's, in e2e/lanes.yaml, on funcd's lane harness.
 package addons
 
 // Module is this module's path, as funcd's go.mod requires it.
