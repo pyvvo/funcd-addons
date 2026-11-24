@@ -50,6 +50,7 @@ to the release, and pushes each add-on's images to GHCR for linux/amd64 and linu
 nix develop -c just ci             # check the manifests, build and test the plugins
 nix develop -c just e2e            # run each add-on under funcdctl dev; needs Docker
 nix develop -c just lane <name>    # run one lane of e2e/lanes.yaml in a Lima VM; needs colima
+nix develop -c just lanes          # run every lane but the optional ones, in one shared VM
 ```
 
 Design decisions live in funcd's ADRs: ADR-0332 to ADR-0336 decide what an add-on is.
