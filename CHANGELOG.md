@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/pyvvo/funcd-addons/compare/v0.4.0...v0.4.1) (2026-11-24)
+
+
+### Bug Fixes
+
+* **addons:** the InfraStack and tunnel Addons pin the images that v0.4.0 published ([#13](https://github.com/pyvvo/funcd-addons/issues/13)) ([883915b](https://github.com/pyvvo/funcd-addons/commit/883915b23af95016d54b14c0762e2c7a5dcc0368))
+
 ## [0.4.0](https://github.com/pyvvo/funcd-addons/compare/v0.3.0...v0.4.0) (2026-11-24)
 
 
