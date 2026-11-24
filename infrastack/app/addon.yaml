@@ -6,9 +6,9 @@ spec:
   runtimes:
     # OpenTofu for the stacks' Jobs (funcd ADR-0344): funcd's Python shim with the handler of runtime/, which plans in a
     # run's preview and applies only the approved saved plan (funcd ADR-0348). The release workflow publishes the
-    # image, whose multi-arch digest from v0.4.0 is pinned here.
+    # image, whose multi-arch digest from v0.5.0 is pinned here.
     - name: opentofu1
-      image: ghcr.io/pyvvo/funcd-opentofu@sha256:2a8453de4a2f9794fd7031980dcf4ff41dd8e3c09961fbe816379df089e94005
+      image: ghcr.io/pyvvo/funcd-opentofu@sha256:ea7f035a7deb67fd5b301b70f95af069369fc84994d714fbc2e3bad9a1771b91
       workloads:
         - Job
     # The InfraStack kind runs no engine (funcd ADR-0345): the Function of reconciler/ drives each stack's Job.
