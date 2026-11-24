@@ -73,8 +73,9 @@ name.
   Secret holds each key, empty, before the first apply.
 - **The state** is the s3 backend at `<prefix>/terraform.tfstate` in the Bucket, through funcd's S3 gateway, with the
   Job's own key pair (funcd ADR-0351) in a credentials file of the run's own. The lock is OpenTofu's lock file. A Job
-  runs one run at a time, so a lock found at a run's start was left by an interrupted run: the runtime removes it with
-  `tofu force-unlock` and goes on.
+  with `concurrency` unset runs one run at a time (funcd ADR-0347), so a lock found at a run's start was left by an
+  interrupted run: the runtime removes it with `tofu force-unlock` and goes on. A stack's Job keeps `concurrency`
+  unset.
 - **Encryption** is off unless a bound Secret holds `INFRASTACK_STATE_PASSPHRASE`, at least 16 characters: OpenTofu
   then encrypts the state and the saved plans with a key derived from it.
 - **A run downloads nothing**: the providers come from the image's plugin folder. The image carries OpenTofu 1.13.9 and
@@ -114,8 +115,10 @@ funcd-python release that `pins.json` names.
 
 ## Not yet
 
-- A drift schedule: a stack plans only on a change or a deletion. A run on approval waits for a person, and
-  `ctx.job.get` reads no preview, so a drift check needs a Job that only plans.
+- A drift schedule: a stack plans only on a change or a deletion. A drift check's finding has nowhere to go: a run's
+  result must match the module's output contract (funcd ADR-0347), a preview is no result (ADR-0348 Decision 2), and
+  `ctx.job.get` reads a run's phase, reason and result only (ADR-0349 Decision 3). A contract that reserves a drift
+  field, as F143's contract from the module could, would carry it.
 - The module from the stack itself, its contract from its variables, and `funcdctl infra` (F143); plain outputs beyond
   the run's result (F144); stacks in an App's rollout (F145).
 - A waiting apply run of a deleted stack that never applied stays approvable: reject it with `funcdctl job reject`.
