@@ -165,15 +165,19 @@ Unset, a stack is never checked; another value shows `ConfigInvalid`, naming why
 
 - **The check**: at the latest due time since the apply ended, the reconciler starts a run with `action: plan`, named
   `<stack>-c<generation>-<YYYYMMDDHHMM>-<uid>` after that time, so a call sent again starts nothing new. It applies
-  nothing and answers what would change (funcd ADR-0355 Decision 5). One check runs at a time: a due time comes while
-  the check before it has not ended starts none, and a due time missed while funcd was down starts one check, late.
+  nothing and answers what would change (funcd ADR-0355 Decision 5). One check runs at a time: a due time that comes
+  while the latest check has not ended starts none, and a due time missed while funcd was down starts one check, late.
+  A call finds the latest check by reading back over at most the 100 due times before the one it is at, so a check
+  that has not ended 100 due times after its own holds the next one no more, which then starts beside it.
 - **The approval**: a plan run waits for a person's approval as every run does unless its Job says `approval.bypass`
   (funcd ADR-0348 Decisions 1 and 2), so a stack checked on a schedule has a Job with `bypass`, or someone who
   approves each check. A check that waits shows `AwaitingApproval`, with its `funcdctl job approve` line.
 - **The report**: a stack is `Ready` while its last ended check found nothing to change, and shows `Drifted` once one
   finds any, naming the run, its counts and its first five addresses, until a later check finds none or a new
-  generation applies. A check that ends without success shows `DriftCheckFailed`. While a check runs, the stack keeps
-  what the check before it found. An answer's `ok` carries no reason (funcd ADR-0341 Decision 4), so drift is a
+  generation applies. A check that ends without success shows `DriftCheckFailed`, and one whose start the Job's
+  contract refuses shows `DriftCheckRefused`, as for a module pushed before funcd ADR-0355, which takes no `action:
+  plan`: push it again with `funcdctl infra push`. While a check runs, the stack keeps what the latest ended check
+  found. An answer's `ok` carries no reason (funcd ADR-0341 Decision 4), so drift is a
   stack's `Ready False`.
 
 ## In an App
@@ -181,6 +185,11 @@ Unset, a stack is never checked; another value shows `ConfigInvalid`, naming why
 An App holds a stack as it holds the six objects above (funcd ADR-0350 for its Job): its template's `images` name the
 module's bundle and the reconciler, since a template's Job and Function take only its own images, so `app/` holds the
 Addon alone. funcd-functions' frp-bunny App is the example.
+
+A stack that is not `Ready` is a `Lagging` part of its App (funcd ADR-0357 Decision 1), and the App's post-hooks and
+prune wait while it lags (Decision 4). A drift check counts the same: a stack that shows `Drifted`,
+`DriftCheckFailed`, `DriftCheckRefused` or a check's `AwaitingApproval` holds them until it is `Ready` again. A Job
+with `approval.bypass` keeps a check from waiting for a person.
 
 ## Build and check
 

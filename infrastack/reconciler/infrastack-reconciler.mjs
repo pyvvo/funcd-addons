@@ -16,6 +16,8 @@ const MINUTE = 60_000;
 const MAX_DAYS = 4 * 366 + 1;
 // How many of a finding's addresses a Drifted message names.
 const SHOWN = 5;
+// How many due times a look for the stack's latest check reads back over, one read each.
+const LOOKBACK = 100;
 
 const ENDED = new Set(['Succeeded', 'Failed', 'Cancelled', 'Rejected']);
 
@@ -207,9 +209,22 @@ const awaiting = (run) => ({
   message: `drift check ${run.name} awaits approval: funcdctl job approve ${run.name}`,
 });
 
-// drift checks an applied stack against its config.drift: at its latest due time since apply ended, it starts a plan
-// run named after that time, unless the check of the due time before it has not ended, and reports the latest check
-// that has ended, or one that awaits approval.
+// latestCheck is the stack's latest check due before from and at or after applied, with its due time, or null when
+// none of the LOOKBACK due times before from has one.
+const latestCheck = async (ctx, stack, cron, from, applied) => {
+  let at = from;
+  for (let left = LOOKBACK; left > 0; left--) {
+    at = latestDue(cron, new Date(at.getTime() - MINUTE));
+    if (!at || at < applied) return null;
+    const run = await getRun(ctx, stack, driftRunName(stack, at));
+    if (run) return { run, at };
+  }
+  return null;
+};
+
+// drift checks an applied stack against its config.drift: at its latest due time since the apply ended, it starts a
+// plan run named after that time unless the latest check before it has not ended, and reports the latest check that
+// has ended, or one that awaits approval.
 const drift = async (ctx, stack, apply, now) => {
   let cron;
   try {
@@ -220,20 +235,36 @@ const drift = async (ctx, stack, apply, now) => {
   const applied = apply.endedAt ? new Date(apply.endedAt) : new Date(0);
   const due = latestDue(cron, now);
   if (!due || due < applied) return { ok: true };
-  const before = latestDue(cron, new Date(due.getTime() - MINUTE));
   const name = driftRunName(stack, due);
+  // lastFound is the finding of the latest check before from, when it has ended.
+  const lastFound = async (from) => {
+    const last = await latestCheck(ctx, stack, cron, from, applied);
+    return last && ENDED.has(last.run.phase) ? finding(last.run) : { ok: true };
+  };
   try {
-    let run = await getRun(ctx, stack, name);
-    const prev = before && before >= applied ? await getRun(ctx, stack, driftRunName(stack, before)) : null;
-    if (!run) {
-      if (prev && !ENDED.has(prev.phase)) return prev.phase === 'AwaitingApproval' ? awaiting(prev) : { ok: true };
-      await ctx.job.start(stack.config.job, { action: 'plan', variables: stack.config.variables ?? {} }, name);
-      run = await ctx.job.get(stack.config.job, name);
+    const run = await getRun(ctx, stack, name);
+    if (run) {
+      if (ENDED.has(run.phase)) return finding(run);
+      return run.phase === 'AwaitingApproval' ? awaiting(run) : lastFound(due);
     }
-    if (ENDED.has(run.phase)) return finding(run);
-    if (run.phase === 'AwaitingApproval') return awaiting(run);
-    return prev && ENDED.has(prev.phase) ? finding(prev) : { ok: true };
+    const last = await latestCheck(ctx, stack, cron, due, applied);
+    if (last && !ENDED.has(last.run.phase)) {
+      return last.run.phase === 'AwaitingApproval' ? awaiting(last.run) : lastFound(last.at);
+    }
+    await ctx.job.start(stack.config.job, { action: 'plan', variables: stack.config.variables ?? {} }, name);
+    const started = await ctx.job.get(stack.config.job, name);
+    if (ENDED.has(started.phase)) return finding(started);
+    if (started.phase === 'AwaitingApproval') return awaiting(started);
+    return last ? finding(last.run) : { ok: true };
   } catch (err) {
+    if (err?.status === 422) {
+      return {
+        ok: false,
+        reason: 'DriftCheckRefused',
+        message: `drift check ${name} of the Job bound as ${stack.config.job}: ${err?.message ?? err}; a module pushed ` +
+          'before funcd ADR-0355 takes no action plan: push it again with funcdctl infra push',
+      };
+    }
     const reason = START_REFUSED[err?.status] ?? 'RunStartFailed';
     return { ok: false, reason, message: `drift check ${name} of the Job bound as ${stack.config.job}: ${err?.message ?? err}` };
   }
