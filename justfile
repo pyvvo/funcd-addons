@@ -58,10 +58,10 @@ plugins goos="" goarch="":
 e2e:
     python3 e2e/run.py
 
-# run one lane of e2e/lanes.yaml on containerd in a Lima VM: funcd's `just lima-example <name>`, through funcd's dev
-# shell, in a funcd checkout at e2e/funcd.ref that this recipe keeps under $HOME, since colima shares only $HOME; needs
-# colima running. A change in that checkout is lost when e2e/funcd.ref moves.
-lane name:
+# keep the funcd checkout at e2e/funcd.ref that the lane recipes run funcd's lane harness in, under $HOME, since colima
+# shares only $HOME. A change in that checkout is lost when e2e/funcd.ref moves.
+[private]
+funcd-checkout:
     #!/usr/bin/env bash
     set -euo pipefail
     ref=$(cat e2e/funcd.ref)
@@ -73,6 +73,15 @@ lane name:
         git -C "$src" ls-files -v | sed -n 's/^S //p' | git -C "$src" update-index --no-skip-worktree --stdin
         git -C "$src" checkout --quiet --force --detach "$ref"
     fi
-    cd "$src"
-    FUNCD_LANES='{{justfile_directory()}}/e2e/lanes.yaml' FUNCD_LANES_ROOT='{{justfile_directory()}}' \
-        nix develop -c just lima-example '{{name}}'
+
+# funcd's `just lima-example <name>`, through funcd's dev shell, in the funcd checkout at e2e/funcd.ref; needs colima
+# run one lane of e2e/lanes.yaml on containerd in a Lima VM
+lane name: funcd-checkout
+    cd "$HOME/.cache/funcd-addons/funcd" && FUNCD_LANES='{{justfile_directory()}}/e2e/lanes.yaml' \
+        FUNCD_LANES_ROOT='{{justfile_directory()}}' nix develop -c just lima-example '{{name}}'
+
+# funcd's `just lima-example-all`, in the funcd checkout at e2e/funcd.ref, one VM reset and leak-checked between lanes
+# run every lane of e2e/lanes.yaml but the paid live one (the only optional lane), in one shared VM; needs colima
+lanes: funcd-checkout
+    cd "$HOME/.cache/funcd-addons/funcd" && FUNCD_LANES='{{justfile_directory()}}/e2e/lanes.yaml' \
+        FUNCD_LANES_ROOT='{{justfile_directory()}}' nix develop -c just lima-example-all

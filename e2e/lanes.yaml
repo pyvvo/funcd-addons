@@ -108,7 +108,6 @@ addon-infrastack:
   # the runs and the plugin use the runtime under test whatever image the Addon pins; funcd's e2e/laneregistry serves it
   # in the VM. The build writes opentofu.tar into the lane's dir, so the lane builds in a writable copy of
   # infrastack/examples, inside funcd's checkout.
-  optional: true
   dir: infrastack/examples
   copy: true
   build:
@@ -149,7 +148,6 @@ addon-frp-bunny:
   # The build makes the OpenTofu runtime's image with this repository's recipe, as the addon-infrastack lane does, and
   # funcd's e2e/laneregistry serves it in the VM; the Tunnel Addon pulls its image from GHCR by the digest it pins,
   # unless the lane also stages tunnel.tar. frps is fatedier/frps's binary, by digest.
-  optional: true
   module: github.com/pyvvo/funcd-functions
   dir: apps/frp-bunny
   copy: true
