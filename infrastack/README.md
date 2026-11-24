@@ -228,7 +228,6 @@ funcd-python release that `pins.json` names.
 
 ## Not yet
 
-- Stacks in an App's rollout (F145).
 - A module under `funcdctl dev` on a Mac: its index has no darwin entry, so it does not materialize there (funcd
   ADR-0355 Consequences).
 - A waiting apply run of a deleted stack that never applied stays approvable: reject it with `funcdctl job reject`.
