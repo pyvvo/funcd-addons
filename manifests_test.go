@@ -19,8 +19,9 @@ var digest = regexp.MustCompile(`@sha256:[a-f0-9]{64}$`)
 // The funcd kinds an add-on's examples use beside the kinds the Addons register.
 var funcdKinds = []string{"Addon", "Secret", "Route", "OIDCProvider", "Function", "Namespace", "BackupSchedule", "Backup", "Restore", "Bucket"}
 
-// TestManifests decodes every add-on's YAML: each document is block style, an Addon pins its image by digest and
-// names its kind, and every other document is of a funcd kind or of a kind an Addon here registers.
+// TestManifests decodes every add-on's YAML: each document is block style, an Addon pins each runtime's image by
+// digest and names the kind its engine entry runs (funcd ADR-0344), and every other document is of a funcd kind or of a
+// kind an Addon here registers.
 func TestManifests(t *testing.T) {
 	t.Parallel()
 	type doc struct {
@@ -67,11 +68,17 @@ func TestManifests(t *testing.T) {
 		var m struct {
 			Kind string `yaml:"kind"`
 			Spec struct {
-				Kind     string `yaml:"kind"`
-				Image    string `yaml:"image"`
-				Settings []struct {
-					Kind string `yaml:"kind"`
-				} `yaml:"settings"`
+				Runtimes []struct {
+					Name       string   `yaml:"name"`
+					Image      string   `yaml:"image"`
+					Workloads  []string `yaml:"workloads"`
+					Attributes struct {
+						Kind     string `yaml:"kind"`
+						Settings []struct {
+							Kind string `yaml:"kind"`
+						} `yaml:"settings"`
+					} `yaml:"attributes"`
+				} `yaml:"runtimes"`
 			} `yaml:"spec"`
 		}
 		if err := d.node.Decode(&m); err != nil {
@@ -79,15 +86,22 @@ func TestManifests(t *testing.T) {
 			continue
 		}
 		if m.Kind == "Addon" {
-			if !digest.MatchString(m.Spec.Image) {
-				t.Errorf("%s: the Addon's image %q is not pinned by digest", d.file, m.Spec.Image)
+			named := false
+			for _, rt := range m.Spec.Runtimes {
+				if !digest.MatchString(rt.Image) {
+					t.Errorf("%s: the image %q of the runtime %q is not pinned by digest", d.file, rt.Image, rt.Name)
+				}
+				if !slices.Contains(rt.Workloads, "Engine") {
+					continue
+				}
+				named = rt.Attributes.Kind != ""
+				kinds[rt.Attributes.Kind] = true
+				for _, st := range rt.Attributes.Settings {
+					kinds[st.Kind] = true
+				}
 			}
-			if m.Spec.Kind == "" {
-				t.Errorf("%s: the Addon names no kind", d.file)
-			}
-			kinds[m.Spec.Kind] = true
-			for _, st := range m.Spec.Settings {
-				kinds[st.Kind] = true
+			if !named {
+				t.Errorf("%s: no runtime of the Addon runs a kind", d.file)
 			}
 		}
 	}
