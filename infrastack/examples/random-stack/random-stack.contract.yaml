@@ -8,6 +8,7 @@ input:
       enum:
         - apply
         - destroy
+        - plan
     variables:
       type: object
       additionalProperties: false
@@ -23,5 +24,30 @@ output:
   type: object
   additionalProperties: false
   properties:
-    name:
-      type: string
+    outputs:
+      type: object
+      additionalProperties: false
+      properties:
+        name: {}
+    plan:
+      type: object
+      additionalProperties: false
+      properties:
+        add:
+          type: integer
+        change:
+          type: integer
+        destroy:
+          type: integer
+        replace:
+          type: integer
+        resources:
+          type: array
+          items:
+            type: string
+      required:
+        - add
+        - change
+        - destroy
+        - replace
+        - resources

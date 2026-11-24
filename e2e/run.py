@@ -265,6 +265,8 @@ def build() -> None:
         ref = (ROOT / "e2e" / "funcd.ref").read_text().strip()
         subprocess.run(["go", "install", "-tags", "dev", f"github.com/pyvvo/funcd/cmd/funcdctl@{ref}"], check=True, env=env)
     for d in sorted(ROOT.glob("*/plugin/*/")):
+        if not any(d.glob("*.go")):
+            continue
         subprocess.run(["go", "build", "-o", str(BIN / d.name), f"./{d.relative_to(ROOT)}"], cwd=ROOT, check=True, env=env)
 
 

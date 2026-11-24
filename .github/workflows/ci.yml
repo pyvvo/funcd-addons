@@ -43,6 +43,49 @@ jobs:
       - name: Check the manifests, build and test the plugins
         run: nix develop --command just ci
 
+  # The InfraStack add-on's OpenTofu image, its check on an internal Docker network, and a module pushed through
+  # funcdctl-infra with that image's OpenTofu into an OCI layout (funcd ADR-0355).
+  infrastack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Cache Nix store
+        uses: nix-community/cache-nix-action@v7
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock', 'flake.nix') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-
+          gc-max-store-size-linux: 5G
+
+      - name: Cache Go builds
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum', 'e2e/funcd.ref') }}
+          restore-keys: go-${{ runner.os }}-
+
+      - name: Build the OpenTofu image
+        run: nix develop --command just opentofu-image
+
+      - name: Check the image
+        run: nix develop --command just opentofu-image-check
+
+      - name: Push a module through funcdctl-infra
+        run: |
+          nix develop --command just funcdctl
+          nix develop --command just infra-push-check
+
   # Each add-on under funcdctl dev on the runner's Docker, at the funcd that e2e/funcd.ref pins.
   e2e:
     runs-on: ubuntu-latest
