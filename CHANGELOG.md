@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/pyvvo/funcd-addons/compare/v0.6.1...v0.7.0) (2026-11-24)
+
+
+### Features
+
+* **lanes:** `just lanes` runs every add-on lane in one shared VM ([#25](https://github.com/pyvvo/funcd-addons/issues/25)) ([66e692d](https://github.com/pyvvo/funcd-addons/commit/66e692d1168abf94b83ba84ef61ae31b7048d783))
+
 ## [0.6.1](https://github.com/pyvvo/funcd-addons/compare/v0.6.0...v0.6.1) (2026-11-24)
 
 
