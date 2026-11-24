@@ -63,10 +63,19 @@ const ended = (run, action) => {
   return { reason, message: `run ${run.name} ${run.phase.toLowerCase()}${run.reason ? `: ${run.reason}` : ''}` };
 };
 
+// variablesOf is a run's variables: none when the stack sets none (absent, null or {}), since a module with no plain
+// variable takes void variables (funcd ADR-0355 Decision 3, amended 2026-11-24); anything else as it is, so the run's
+// creation refuses a malformed one.
+const variablesOf = (stack) => {
+  const v = stack.config?.variables;
+  const none = v === undefined || v === null || (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0);
+  return none ? {} : { variables: v };
+};
+
 // drive starts the stack's run of action, again harmlessly when it exists, and reads it back.
 const drive = async (ctx, stack, action) => {
   const name = runName(stack, action);
-  const input = { action, variables: stack.config?.variables ?? {} };
+  const input = { action, ...variablesOf(stack) };
   try {
     await ctx.job.start(stack.config.job, input, name);
     return { run: await ctx.job.get(stack.config.job, name) };
@@ -253,7 +262,7 @@ const drift = async (ctx, stack, apply, now) => {
     if (last && !ENDED.has(last.run.phase)) {
       return last.run.phase === 'AwaitingApproval' ? awaiting(last.run) : lastFound(last.at);
     }
-    await ctx.job.start(stack.config.job, { action: 'plan', variables: stack.config.variables ?? {} }, name);
+    await ctx.job.start(stack.config.job, { action: 'plan', ...variablesOf(stack) }, name);
     const started = await ctx.job.get(stack.config.job, name);
     if (ENDED.has(started.phase)) return finding(started);
     if (started.phase === 'AwaitingApproval') return awaiting(started);

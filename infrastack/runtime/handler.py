@@ -11,7 +11,8 @@ as ``funcdctl infra push`` packs it, else from the image's (funcd ADR-0355 Decis
 pair (funcd ADR-0351), which OpenTofu reads from a credentials file of its own, so no provider sees it. A lock that an
 interrupted run left is removed before the run goes on: a Job runs one run at a time, so no other run holds it.
 
-The run's input is ``{"action": "apply" | "destroy" | "plan", "variables": {...}}``, and the module's own variables
+The run's input is ``{"action": "apply" | "destroy" | "plan", "variables": {...}}``, ``variables`` absent or null when
+the stack sets none (funcd ADR-0355 Decision 3, amended 2026-11-24), and the module's own variables
 and state files never reach a run (funcd ADR-0355 Decision 3). The Job's bound ConfigMap gives
 ``INFRASTACK_STATE_BUCKET`` and ``INFRASTACK_STATE_PREFIX``, the Bucket and the prefix of its blob binding ``state``,
 and may give ``INFRASTACK_OUTPUTS_SECRET``, the Secret it owns that gets every output of an apply, one key each (funcd

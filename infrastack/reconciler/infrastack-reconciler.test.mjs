@@ -53,6 +53,23 @@ test('a stack starts the run of its generation, named after it, with its variabl
   assert.deepEqual(results, [{ name: 'bunny-edge', ok: false, reason: 'Queued', message: 'run bunny-edge-g3-9c2e41aa is Pending' }]);
 });
 
+test('a stack that sets no variables starts its run with none', async () => {
+  for (const config of [{ job: 'bunny-edge' }, { job: 'bunny-edge', variables: null }, { job: 'bunny-edge', variables: {} }]) {
+    const ctx = jobs();
+    await call(ctx, [stack({ config })]);
+    assert.deepEqual(ctx.started, [{ alias: 'bunny-edge', input: { action: 'apply' }, name: 'bunny-edge-g3-9c2e41aa' }],
+      JSON.stringify(config));
+  }
+});
+
+test('malformed variables reach the run as they are, so its creation refuses them', async () => {
+  for (const variables of ['prefix=a', 3, [], [{ prefix: 'a' }]]) {
+    const ctx = jobs();
+    await call(ctx, [stack({ config: { job: 'bunny-edge', variables } })]);
+    assert.deepEqual(ctx.started.map((s) => s.input), [{ action: 'apply', variables }], JSON.stringify(variables));
+  }
+});
+
 test('a stack reports its run: planning, awaiting approval, applying, then Ready', async () => {
   const ctx = jobs();
   await call(ctx, [stack()]);
@@ -216,6 +233,12 @@ test('at its due time an applied stack starts one plan run, named after that tim
   assert.equal(ctx.runs.size, 2, 'a call sent again starts nothing new');
   await callAt(ctx, [drifting()], '2026-11-24T08:59:00Z');
   assert.equal(ctx.runs.size, 2, 'a due time before the apply ended starts no check');
+});
+
+test("a stack that sets no variables starts its drift check with none", async () => {
+  const ctx = applied();
+  await callAt(ctx, [drifting({ config: { job: 'bunny-edge', drift: '0 * * * *' } })], '2026-11-24T10:07:00Z');
+  assert.deepEqual(ctx.started.at(-1), { alias: 'bunny-edge', input: { action: 'plan' }, name: 'bunny-edge-c3-202611241000-9c2e41aa' });
 });
 
 test('a finding that would change anything is Drifted, naming the run, the counts and the resources', async () => {

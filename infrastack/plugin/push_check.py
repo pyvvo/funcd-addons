@@ -1,7 +1,8 @@
 """The scenario infra-push-builds-index with real OpenTofu (funcd ADR-0355): funcdctl-infra pushes a module whose
 main.tf calls the local child module ./sub into an OCI layout, with the OpenTofu of the image INFRASTACK_OPENTOFU_IMAGE
 names and the funcdctl FUNCDCTL names. It checks the index, the contract that funcdctl inspect prints, and that each
-platform's bundle holds only its own provider packages."""
+platform's bundle holds only its own provider packages; then that a module whose only variable is sensitive pushes, with
+void variables (the scenario infra-sensitive-only-module)."""
 
 from __future__ import annotations
 
@@ -20,6 +21,9 @@ MAIN = PROVIDER + '\nvariable "prefix" {\n  type = string\n}\n\nvariable "token"
                   '  prefix = var.prefix\n}\n\noutput "name" {\n  value = module.sub.name\n}\n'
 SUB = PROVIDER + '\nvariable "prefix" {\n  type = string\n}\n\nresource "random_pet" "name" {\n  prefix = var.prefix\n' \
                  '}\n\noutput "name" {\n  value = random_pet.name.id\n}\n'
+# A module whose only variable is sensitive (funcd ADR-0355 Decision 3, amended 2026-11-24).
+SECRET = PROVIDER + '\nvariable "token" {\n  type      = string\n  sensitive = true\n}\n\n' \
+                    'resource "random_pet" "name" {\n  keepers = {\n    token = sha256(var.token)\n  }\n}\n'
 
 
 def check(cond: bool, what: str) -> None:
@@ -67,6 +71,19 @@ def main() -> None:
                   f"the {platform} bundle holds only its own provider packages: {packages}")
             check((into / "sub" / "main.tf").is_file() and (into / ".terraform.lock.hcl").is_file(),
                   f"the {platform} bundle holds the child module and the lock file")
+
+        # scenario: infra-sensitive-only-module
+        secret = Path(tmp) / "secret"
+        secret.mkdir()
+        (secret / "main.tf").write_text(SECRET, encoding="utf-8")
+        sref = f"oci-layout://{layout}:secret-1"
+        spushed = subprocess.run([sys.executable, str(HERE / "funcdctl-infra"), "push", str(secret), sref],
+                                 capture_output=True, text=True)
+        check(spushed.returncode == 0, f"a module whose only variable is sensitive pushes too: {spushed.stderr[-2000:]}")
+        sinput = json.loads(subprocess.run([funcdctl, "inspect", spushed.stdout.strip()], capture_output=True, text=True,
+                                           check=True).stdout)["input"]
+        check(sinput["properties"]["variables"] == {"type": "null"} and sinput["required"] == ["action"],
+              f"its variables are void, so a run's input sets none: {sinput}")
     print("PASS", flush=True)
 
 
