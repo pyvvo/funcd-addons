@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.0](https://github.com/pyvvo/funcd-addons/compare/v0.3.0...v0.4.0) (2026-11-24)
+
+
+### Features
+
+* **infrastack:** an OpenTofu runtime for Jobs that applies only the approved saved plan (funcd ADR-0344, ADR-0348) ([4c47f2e](https://github.com/pyvvo/funcd-addons/commit/4c47f2eec1e24ca4b73b0f8a733e810e4153056b))
+* **infrastack:** the InfraStack add-on, an engineless kind whose Function drives one Job per stack (funcd ADR-0345, ADR-0349) ([4c47f2e](https://github.com/pyvvo/funcd-addons/commit/4c47f2eec1e24ca4b73b0f8a733e810e4153056b))
+* **tunnel:** the tunnel add-on, frpc as an engine that hands visitors to funcd's edge (funcd ADR-0352 to ADR-0354) ([36ff3df](https://github.com/pyvvo/funcd-addons/commit/36ff3df638c5432cfe3cd6052d00766b42dd9105))
+
 ## [0.3.0](https://github.com/pyvvo/funcd-addons/compare/v0.2.0...v0.3.0) (2026-11-24)
 
 
