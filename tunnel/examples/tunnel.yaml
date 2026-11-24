@@ -1,0 +1,36 @@
+# A Tunnel that serves namespace team's host api.team.funcd.example at the public name team-tunnel.b-cdn.net, through
+# frps behind that Bunny pull zone. The Secret tunnel-token holds FRP_TOKEN, frps's token. The EgressPolicy lets the
+# Tunnel's engine dial the pull zone (funcd ADR-0352), and the edge serves the engine only team's hosts on the bridge
+# address (funcd ADR-0353).
+apiVersion: funcd.io/v1alpha1
+kind: Tunnel
+metadata:
+  name: public
+  namespace: team
+  resourceGroup: rg1
+spec:
+  config:
+    server: team-tunnel.b-cdn.net
+    hostRewrite: api.team.funcd.example
+    edgeAddress: 10.63.0.1
+    edgePort: 8081
+  bindings:
+    secret:
+      - tunnel-token
+---
+apiVersion: funcd.io/v1alpha1
+kind: EgressPolicy
+metadata:
+  name: tunnel
+  namespace: team
+  resourceGroup: rg1
+spec:
+  appliesTo:
+    - kind: Tunnel
+      name: public
+  rules:
+    - to:
+        domains:
+          - team-tunnel.b-cdn.net
+      ports:
+        - 443

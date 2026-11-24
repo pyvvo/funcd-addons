@@ -1,0 +1,58 @@
+apiVersion: funcd.io/v1alpha1
+kind: Addon
+metadata:
+  name: tunnel
+spec:
+  runtimes:
+    - name: tunnel
+      image: ghcr.io/pyvvo/funcd-tunnel@sha256:TODO-pin-after-the-first-image-build
+      workloads:
+        - Engine
+      attributes:
+        kind: Tunnel
+        port: 7400
+        readiness:
+          path: /healthz
+        config:
+          type: object
+          additionalProperties: false
+          properties:
+            server:
+              type: string
+            serverPort:
+              type: integer
+              minimum: 1
+              maximum: 65535
+              default: 443
+            protocol:
+              type: string
+              enum:
+                - wss
+                - websocket
+              default: wss
+            host:
+              type: string
+              default: ""
+            hostRewrite:
+              type: string
+            edgeAddress:
+              type: string
+            edgePort:
+              type: integer
+              minimum: 1
+              maximum: 65535
+          required:
+            - server
+            - hostRewrite
+            - edgeAddress
+            - edgePort
+        env:
+          FRP_SERVER_ADDR: ${{ config.server }}
+          FRP_SERVER_PORT: ${{ config.serverPort }}
+          FRP_PROTOCOL: ${{ config.protocol }}
+          FRP_HOST: '${{ config.host !== "" ? config.host : config.server }}'
+          FRP_HOST_REWRITE: ${{ config.hostRewrite }}
+          FRP_EDGE_IP: ${{ config.edgeAddress }}
+          FRP_EDGE_PORT: ${{ config.edgePort }}
+        secretKeys:
+          - FRP_TOKEN

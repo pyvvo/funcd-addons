@@ -21,7 +21,7 @@ var digest = regexp.MustCompile(`@sha256:[a-f0-9]{64}$`)
 var unpublished = regexp.MustCompile(`^ghcr\.io/pyvvo/[a-z0-9-]+@sha256:TODO-[a-z0-9-]+$`)
 
 // The funcd kinds an add-on's examples use beside the kinds the Addons register.
-var funcdKinds = []string{"Addon", "Secret", "Route", "OIDCProvider", "Function", "Namespace", "BackupSchedule", "Backup", "Restore", "Bucket", "Job", "ConfigMap"}
+var funcdKinds = []string{"Addon", "Secret", "Route", "OIDCProvider", "Function", "Namespace", "BackupSchedule", "Backup", "Restore", "Bucket", "Job", "ConfigMap", "EgressPolicy"}
 
 // TestManifests decodes every add-on's YAML: each document is block style, an Addon pins each runtime's image by
 // digest, but for an Engineless entry, which runs none, and names the kind its Engine or Engineless entry runs (funcd
