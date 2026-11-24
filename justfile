@@ -57,3 +57,22 @@ plugins goos="" goarch="":
 # run each add-on under funcdctl dev on the local Docker, at the funcd of e2e/funcd.ref
 e2e:
     python3 e2e/run.py
+
+# run one lane of e2e/lanes.yaml on containerd in a Lima VM: funcd's `just lima-example <name>`, through funcd's dev
+# shell, in a funcd checkout at e2e/funcd.ref that this recipe keeps under $HOME, since colima shares only $HOME; needs
+# colima running. A change in that checkout is lost when e2e/funcd.ref moves.
+lane name:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ref=$(cat e2e/funcd.ref)
+    src="$HOME/.cache/funcd-addons/funcd"
+    [ -d "$src/.git" ] || git clone --quiet https://github.com/pyvvo/funcd.git "$src"
+    if [ "$(git -C "$src" rev-parse HEAD)" != "$ref" ]; then
+        git -C "$src" cat-file -e "$ref^{commit}" 2>/dev/null || git -C "$src" fetch --quiet origin "$ref"
+        # funcd's image build marks its placeholder image tarballs skip-worktree, which no checkout replaces
+        git -C "$src" ls-files -v | sed -n 's/^S //p' | git -C "$src" update-index --no-skip-worktree --stdin
+        git -C "$src" checkout --quiet --force --detach "$ref"
+    fi
+    cd "$src"
+    FUNCD_LANES='{{justfile_directory()}}/e2e/lanes.yaml' FUNCD_LANES_ROOT='{{justfile_directory()}}' \
+        nix develop -c just lima-example '{{name}}'
