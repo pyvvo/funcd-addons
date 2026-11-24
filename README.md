@@ -9,6 +9,7 @@ data into the namespace's backups.
 |---|---|---|
 | [rauthy](rauthy/) | `IdentityProvider`, and the settings kind `RauthyPasswordPolicy` | An OpenID Connect provider with funcd's look ([pyvvo/funcd-rauthy](https://github.com/pyvvo/funcd-rauthy)), with the funcdctl plugin `funcdctl-rauthy`, as an App template |
 | [infrastack](infrastack/) | `InfraStack`, which runs no engine | OpenTofu stacks: a Function drives one Job per stack on the add-on's OpenTofu runtime, whose runs apply only the plan a person approved |
+| [tunnel](tunnel/) | `Tunnel` | frpc as an engine: it dials frps outside funcd, such as on Bunny Magic Containers behind a pull zone, and hands each visitor's request to funcd's edge, so a namespace's host gets a public HTTPS name with no inbound port |
 
 ## Register one
 
@@ -30,6 +31,7 @@ objects, the Secret they bind and its plugin.
 | `<addon>/settings/` | The code of its settings kinds' Function, pushed as any Function |
 | `<addon>/reconciler/` | The code of an engineless kind's Function, pushed as any Function |
 | `<addon>/runtime/` | An image the add-on ships as a runtime, which each release builds and pushes to GHCR |
+| `<addon>/image/` | The image of the add-on's engine, which each release builds and pushes to GHCR |
 | `<addon>/examples/` | Objects of its kind, and what uses them |
 | `<addon>/plugin/funcdctl-<addon>/` | Its funcdctl plugin, a Go command that each release builds |
 | `e2e/` | The end-to-end run: each add-on under `funcdctl dev` on Docker |
