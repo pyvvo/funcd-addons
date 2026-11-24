@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.0](https://github.com/pyvvo/funcd-addons/compare/v0.2.0...v0.3.0) (2026-11-24)
+
+
+### ⚠ BREAKING CHANGES
+
+* **rauthy:** the Addon needs a funcd that implements ADR-0344; an older funcd refuses it.
+
+### Features
+
+* **rauthy:** rauthy's Addon ships its engine as a runtime, whose attributes hold its kind (funcd ADR-0344) ([#8](https://github.com/pyvvo/funcd-addons/issues/8)) ([27689e1](https://github.com/pyvvo/funcd-addons/commit/27689e143c3e1b26e24f00da4a8d2bb5887d8036))
+
 ## [0.2.0](https://github.com/pyvvo/funcd-addons/compare/v0.1.1...v0.2.0) (2026-11-22)
 
 
