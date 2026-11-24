@@ -1,0 +1,16 @@
+# Path C of funcd's experiment 0027: frpc dials frps over wss through a pull zone, with frp's inner TLS off.
+serverAddr = "{{ .Envs.FRP_SERVER_ADDR }}"
+serverPort = {{ .Envs.FRP_SERVER_PORT }}
+auth.token = "{{ .Envs.FRP_TOKEN }}"
+transport.protocol = "wss"
+transport.tls.enable = false
+webServer.addr = "0.0.0.0"
+webServer.port = 7400
+
+[[proxies]]
+name = "edge"
+type = "http"
+localIP = "{{ .Envs.FRP_EDGE_IP }}"
+localPort = {{ .Envs.FRP_EDGE_PORT }}
+customDomains = ["{{ .Envs.FRP_HOST }}"]
+hostHeaderRewrite = "{{ .Envs.FRP_HOST_REWRITE }}"
