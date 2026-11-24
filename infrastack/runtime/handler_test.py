@@ -324,6 +324,64 @@ class HandlerTest(unittest.TestCase):
         self.assertNotIn("TF_VAR_region", env, "the output feeds no variable")
         self.assertEqual(env.get("TF_VAR_zone"), "z1", "a Secret's other variables still reach OpenTofu")
 
+    # scenario: infra-plan-run (the handler's half; image_check.py runs it with OpenTofu)
+    def test_scenario_infra_plan_run(self):
+        """A plan run's preview keeps no saved plan; its run plans again, applies nothing, writes no output and answers
+        the plan's finding (funcd ADR-0355 Decision 5)."""
+        fake = Fake()
+        doc = handler.preview(fake, event("plan"))
+        self.assertEqual((doc["action"], doc["add"], doc["replace"]), ("plan", 1, 1))
+        self.assertEqual(fake.blobs, {}, "a plan run keeps no saved plan")
+        approved = Fake(approval={"approved_by": "ops", "preview": doc})
+        result = handler.handle(approved, event("plan"))
+        self.assertEqual(result, {"plan": {"add": 1, "change": 0, "destroy": 0, "replace": 1,
+                                           "resources": ["random_pet.name", "null_resource.marker"]}})
+        commands = [c["args"][0] for c in self.calls()]
+        self.assertNotIn("apply", commands, "a plan run applies nothing")
+        self.assertNotIn("output", commands)
+        self.assertEqual((approved.written, approved.blobs), ({}, {}), "it writes no output and keeps no plan")
+        self.assertNotIn("-destroy", self.call("plan")["args"])
+        self.assertEqual(handler.handle(Fake(), event("plan"))["plan"]["add"], 1, "a bypass plan run answers it too")
+
+    def test_plan_finding_names_the_first_resources(self):
+        shown = {"resource_changes": [{"address": f"null_resource.n[{i}]", "change": {"actions": ["create"]}}
+                                      for i in range(handler.MAX_RESOURCES + 5)]
+                 + [{"address": "random_pet.name", "change": {"actions": ["no-op"]}}]}
+        finding = handler.plan_finding(shown)
+        self.assertEqual(finding["add"], handler.MAX_RESOURCES + 5)
+        self.assertEqual(len(finding["resources"]), handler.MAX_RESOURCES)
+        self.assertEqual(handler.plan_finding({}), {"add": 0, "change": 0, "destroy": 0, "replace": 0, "resources": []})
+
+    def test_the_run_installs_the_modules_own_providers_else_the_images(self):
+        """funcd ADR-0355 Decision 4: init takes the module's .funcd-providers when it holds one."""
+        handler.preview(Fake(), event())
+        self.assertIn(f"-plugin-dir={handler.PLUGINS}", self.call("init")["args"])
+        own = Path(os.environ["INFRASTACK_MODULE_DIR"]) / handler.PROVIDERS
+        own.mkdir()
+        (self.state / "calls.jsonl").unlink()
+        handler.preview(Fake(), event())
+        self.assertIn(f"-plugin-dir={own}", self.call("init")["args"])
+        self.assertFalse((self.dir / "work" / "module" / handler.PROVIDERS).exists(), "the work copy leaves it in the module")
+
+    # scenario: infra-local-files-refused (the run's half; the push's half is plugin_test.py's)
+    def test_scenario_infra_local_files_refused(self):
+        """A module pushed by hand with its own variables or state files runs as if they were not there: the work copy
+        leaves them out, so a run's variables come only from its input, its ConfigMaps' and Secrets' TF_VAR_ keys and
+        the module's defaults."""
+        module = Path(os.environ["INFRASTACK_MODULE_DIR"])
+        (module / "sub").mkdir()
+        names = ("terraform.tfvars", "terraform.tfvars.json", "terraform.tfstate", "terraform.tfstate.backup",
+                 "prod.auto.tfvars", "prod.auto.tfvars.json", "sub/terraform.tfvars")
+        for name in names:
+            (module / name).write_text('prefix = "from-the-file"\n', encoding="utf-8")
+        (module / "sub" / "main.tf").write_text("# a child\n", encoding="utf-8")
+        handler.preview(Fake(), event())
+        work = self.dir / "work" / "module"
+        for name in names:
+            self.assertFalse((work / name).exists(), name)
+        self.assertTrue((work / "sub" / "main.tf").exists())
+        self.assertEqual(json.loads((work / "run.tfvars.json").read_text(encoding="utf-8")), {"prefix": "check"})
+
     def test_check_outputs_takes_env_var_names(self):
         handler.check_outputs(["name", "_private", "TF_VAR_region", "pullzone_host", "FRP_TOKEN", "AWS_REGION"])
         for name in ("pull-zone", "", "9lives", "a.b", "FUNCD_X", "INFRASTACK_X"):
@@ -347,7 +405,7 @@ class HandlerTest(unittest.TestCase):
 
     def test_a_run_that_cannot_go_on_says_why(self):
         cases = {
-            "neither apply nor destroy": (Fake(), {"data": {"action": "import"}}),
+            "none of apply, destroy and plan": (Fake(), {"data": {"action": "import"}}),
             "variables are not an object": (Fake(), {"data": {"action": "apply", "variables": [1]}}),
             "INFRASTACK_STATE_BUCKET": (Fake(config={"INFRASTACK_STATE_PREFIX": "edge"}), event()),
         }

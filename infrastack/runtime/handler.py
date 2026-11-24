@@ -1,15 +1,18 @@
-"""The OpenTofu runtime's handler (funcd ADR-0344, ADR-0348).
+"""The OpenTofu runtime's handler (funcd ADR-0344, ADR-0348, ADR-0355).
 
 A run of a stack's Job plans the Job's module in the run's preview, keeps the saved plan beside the stack's state, and
 answers the plan's summary, whose digest pins the plan; once a person approved that preview, the run applies that saved
-plan and nothing else. A Job with ``approval.bypass`` plans and applies in its one call.
+plan and nothing else. A Job with ``approval.bypass`` plans and applies in its one call. A ``plan`` run keeps no saved
+plan, applies nothing and answers what would change (funcd ADR-0355 Decision 5).
 
 The Job's artifact is the module: funcd mounts it read-only, and ``entry.py`` names its folder in
-``INFRASTACK_MODULE_DIR``. The state lives in the Job's Bucket prefix through funcd's S3 gateway with the Job's own key
+``INFRASTACK_MODULE_DIR``. OpenTofu installs the providers from the module's own ``.funcd-providers`` when it holds one,
+as ``funcdctl infra push`` packs it, else from the image's (funcd ADR-0355 Decision 4). The state lives in the Job's Bucket prefix through funcd's S3 gateway with the Job's own key
 pair (funcd ADR-0351), which OpenTofu reads from a credentials file of its own, so no provider sees it. A lock that an
 interrupted run left is removed before the run goes on: a Job runs one run at a time, so no other run holds it.
 
-The run's input is ``{"action": "apply" | "destroy", "variables": {...}}``. The Job's bound ConfigMap gives
+The run's input is ``{"action": "apply" | "destroy" | "plan", "variables": {...}}``, and the module's own variables
+and state files never reach a run (funcd ADR-0355 Decision 3). The Job's bound ConfigMap gives
 ``INFRASTACK_STATE_BUCKET`` and ``INFRASTACK_STATE_PREFIX``, the Bucket and the prefix of its blob binding ``state``,
 and may give ``INFRASTACK_OUTPUTS_SECRET``, the Secret it owns that gets every output of an apply, one key each (funcd
 ADR-0356). Its bound Secrets give OpenTofu its environment, each key in upper case or named ``TF_VAR_<variable>`` but
@@ -34,8 +37,13 @@ WORK = Path(os.environ.get("INFRASTACK_WORK", "/tmp/infrastack"))
 
 STATE_BINDING = "state"
 PASSPHRASE = "INFRASTACK_STATE_PASSPHRASE"
-ACTIONS = ("apply", "destroy")
+ACTIONS = ("apply", "destroy", "plan")
 MAX_RESOURCES = 100
+# The module's own provider folder, which funcdctl infra push fills for the bundle's platform (funcd ADR-0355 Decision 4).
+PROVIDERS = ".funcd-providers"
+# Files OpenTofu would load over a run's variables, or that hold a state, left out of the work copy (Decision 3).
+LOCAL_FILES = ("terraform.tfstate", "terraform.tfstate.backup", "terraform.tfvars", "terraform.tfvars.json")
+LOCAL_SUFFIXES = (".auto.tfvars", ".auto.tfvars.json")
 
 ENV_KEY = re.compile(r"^(?:[A-Z][A-Z0-9_]*|TF_VAR_[A-Za-z0-9_]+)$")
 # An output's name, its key in the outputs Secret: an env-var name, as a Secret key's rule has it (funcd ADR-0356
@@ -78,23 +86,36 @@ def write_outputs(context: Any, secret: str, outputs: dict[str, Any]) -> None:
 
 
 def preview(context: Any, event: dict[str, Any]) -> dict[str, Any]:
-    """Plan the run's action, keep the saved plan beside the state, and answer its summary (funcd ADR-0348)."""
+    """Plan the run's action, keep the saved plan beside the state, unless the action is plan, and answer its summary
+    (funcd ADR-0348)."""
     run = Run(context, event)
     plan = run.plan()
-    run.keep(plan)
+    if run.action != "plan":
+        run.keep(plan)
     return run.summary(plan)
 
 
 def handle(context: Any, event: dict[str, Any]) -> dict[str, Any]:
     """Apply the saved plan of the approved preview, or, with no approval, plan and apply; answer ``{"outputs": {...}}``,
-    the plain outputs, as funcd ADR-0355 Decision 3 has the runtime answer an apply, and ``{}`` for a destroy."""
+    the plain outputs, as funcd ADR-0355 Decision 3 has the runtime answer an apply, and ``{}`` for a destroy. A plan
+    run plans again, applies nothing, writes no output and answers ``{"plan": {...}}`` (Decision 5)."""
     run = Run(context, event)
+    if run.action == "plan":
+        run.plan()
+        return {"plan": plan_finding(run.shown_plan())}
     approval = getattr(context, "approval", None)
     if approval is None:
         run.plan()
     else:
         run.approved(approval)
     return run.apply()
+
+
+def plan_finding(shown: dict[str, Any]) -> dict[str, Any]:
+    """A plan run's finding (funcd ADR-0355 Decision 5): how many resources the plan adds, changes, destroys and
+    replaces, counted as a preview's summary counts them, and the addresses of the first MAX_RESOURCES of them."""
+    counts, changed = _changes(shown)
+    return {**counts, "resources": [rc["address"] for rc in changed[:MAX_RESOURCES]]}
 
 
 class Run:
@@ -107,7 +128,7 @@ class Run:
             raise StackError("the run's input is not an object of action and variables")
         self.action = data.get("action", "apply")
         if self.action not in ACTIONS:
-            raise StackError(f"the run's action {self.action!r} is neither apply nor destroy")
+            raise StackError(f"the run's action {self.action!r} is none of apply, destroy and plan")
         self.variables = data.get("variables") or {}
         if not isinstance(self.variables, dict):
             raise StackError("the run's variables are not an object")
@@ -142,18 +163,15 @@ class Run:
         """Keep the saved plan beside the state, where the run's apply call reads it."""
         self.context.blob.put(STATE_BINDING, self.plan_key, plan)
 
+    def shown_plan(self) -> dict[str, Any]:
+        """The saved plan in the work folder, as ``tofu show -json`` reads it."""
+        return json.loads(self.tofu("show", "-json", "-no-color", "plan.tfplan", echo=False))
+
     def summary(self, plan: bytes) -> dict[str, Any]:
         """The preview's document: what the plan changes, by address, and the digest that pins the plan."""
-        shown = json.loads(self.tofu("show", "-json", "-no-color", "plan.tfplan", echo=False))
-        counts = {"add": 0, "change": 0, "destroy": 0, "replace": 0}
-        resources = []
-        for rc in shown.get("resource_changes") or []:
-            actions = (rc.get("change") or {}).get("actions") or []
-            kind = _kind(actions)
-            if kind is None:
-                continue
-            counts[kind] += 1
-            resources.append({"address": rc.get("address", ""), "actions": actions})
+        shown = self.shown_plan()
+        counts, changed = _changes(shown)
+        resources = [{"address": rc["address"], "actions": rc["actions"]} for rc in changed]
         outputs = sorted(name for name, oc in (shown.get("output_changes") or {}).items() if _kind(oc.get("actions") or []))
         doc: dict[str, Any] = {"action": self.action, **counts, "resources": resources[:MAX_RESOURCES]}
         if len(resources) > MAX_RESOURCES:
@@ -302,7 +320,9 @@ class Run:
         lines = [f"{k} = {json.dumps(v)}" for k, v in backend.items()]
         lines.append(f"endpoints = {{\n  s3 = {json.dumps(endpoint)}\n}}")
         (WORK / "backend.hcl").write_text("\n".join(lines) + "\n", encoding="utf-8")
-        self.tofu("init", "-input=false", "-no-color", f"-plugin-dir={PLUGINS}", f"-backend-config={WORK / 'backend.hcl'}",
+        own = self.module / PROVIDERS
+        plugins = own if own.is_dir() else PLUGINS
+        self.tofu("init", "-input=false", "-no-color", f"-plugin-dir={plugins}", f"-backend-config={WORK / 'backend.hcl'}",
                   "-reconfigure")
 
     def _forget(self, names: list[str]) -> None:
@@ -318,8 +338,25 @@ class Run:
 
 
 def _not_module(_folder: str, names: list[str]) -> list[str]:
-    """The files of a Job's artifact that are funcd's, not the module's, and a stale .terraform folder."""
-    return [n for n in names if n.startswith(".funcd") or n in ("__funcd_contract.json", ".terraform")]
+    """The files of a Job's artifact that are funcd's, not the module's, a stale .terraform folder, and the files that
+    would set a run's variables or hold a state besides its own (funcd ADR-0355 Decision 3)."""
+    return [n for n in names if n.startswith(".funcd") or n in ("__funcd_contract.json", ".terraform", *LOCAL_FILES)
+            or n.endswith(LOCAL_SUFFIXES)]
+
+
+def _changes(shown: dict[str, Any]) -> tuple[dict[str, int], list[dict[str, Any]]]:
+    """A plan's counts of what it adds, changes, destroys and replaces, and its changed resources, each with its address
+    and actions, in the plan's order."""
+    counts = {"add": 0, "change": 0, "destroy": 0, "replace": 0}
+    changed = []
+    for rc in shown.get("resource_changes") or []:
+        actions = (rc.get("change") or {}).get("actions") or []
+        kind = _kind(actions)
+        if kind is None:
+            continue
+        counts[kind] += 1
+        changed.append({"address": rc.get("address", ""), "actions": actions})
+    return counts, changed
 
 
 def _kind(actions: list[str]) -> str | None:
