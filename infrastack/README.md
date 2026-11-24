@@ -14,7 +14,14 @@ infrastack/
 │   ├── random-stack/
 │   │   ├── main.tf
 │   │   └── random-stack.contract.yaml
-│   └── random-stack.yaml
+│   ├── random-stack-reader.contract.yaml
+│   ├── random-stack-reader.mjs
+│   ├── random-stack-reader.test.mjs
+│   ├── random-stack-reader.yaml
+│   ├── random-stack.yaml
+│   ├── token-stack/
+│   │   └── main.tf
+│   └── token-stack.yaml
 ├── plugin/
 │   ├── funcdctl-infra
 │   ├── plugin_test.py
@@ -62,6 +69,11 @@ for a destroy and `{"plan": {...}}` for a plan run (funcd ADR-0355 Decision 3). 
 <module> <ref> --entry main.tf` beside a `<module>.contract.yaml` written in that shape, runs as well, with the image's
 providers.
 
+`examples/token-stack.yaml` is a stack whose module takes its sensitive variable `token` from the Secret its Job binds,
+as `TF_VAR_token`, and `examples/random-stack-reader.yaml` is a Function that reads random-stack's outputs through
+`ctx.secret`. Each stack's example holds the reconciler Function with its own Job's binding: for both stacks in one
+namespace, it binds both Jobs.
+
 The Job's bound Secrets give OpenTofu its environment: each key in upper case, such as `BUNNYNET_API_KEY`, and each
 `TF_VAR_<variable>`. A key that starts with `AWS_` never reaches OpenTofu, since the state's S3 key pair takes that
 name, and neither does a key named as one of the module's outputs, which the runtime reads with `tofu show -json
@@ -89,9 +101,9 @@ in the image of the Addon's `opentofu1` runtime, which each release stamps into 
   It prints `<ref>@<digest>`.
 - **The contract** has the input `action`, one of `apply`, `destroy` and `plan`, and `variables`, a closed record of
   the module's variables, the ones with no default required. A sensitive variable is left out, so no run's input holds
-  it: its value comes from a bound Secret's `TF_VAR_<name>`. The output holds `outputs`, the plain outputs, none
-  required, and `plan`, a plan run's finding. A wrong variable fails the run's creation with 422, naming its path, and
-  the stack shows `InvalidVariables`.
+  it: its value comes from a bound Secret's `TF_VAR_<name>`, as in `examples/token-stack.yaml`. The output holds
+  `outputs`, the plain outputs, none required, and `plan`, a plan run's finding. A wrong variable fails the run's
+  creation with 422, naming its path, and the stack shows `InvalidVariables`.
 - **`funcdctl infra outputs <stack> [-n <namespace>] [-o json]`** prints each key of the stack's outputs Secret, with
   its value when the Job's contract names it among the plain outputs, else `(sensitive)` (funcd ADR-0356 Decision 8):
 
@@ -130,8 +142,8 @@ in the image of the Addon's `opentofu1` runtime, which each release stamps into 
 - **A destroy** empties each output key it read before the destroy, keeps the key, so no reader waits for it again,
   and answers `{}`. An emptying that funcd refuses is logged by the output's name, and the run goes on.
 - **The readers**: a Function that binds the outputs Secret reads each output through `ctx.secret`, a changed one at
-  its next read, with no new revision; an add-on object that binds it gets in its engine's environment the keys its
-  Addon lists in `secretKeys`, and a changed value replaces the engine.
+  its next read, with no new revision, as `examples/random-stack-reader.yaml` does; an add-on object that binds it gets
+  in its engine's environment the keys its Addon lists in `secretKeys`, and a changed value replaces the engine.
 - **The state** is the s3 backend at `<prefix>/terraform.tfstate` in the Bucket, through funcd's S3 gateway, with the
   Job's own key pair (funcd ADR-0351) in a credentials file of the run's own. The lock is OpenTofu's lock file. A Job
   with `concurrency` unset runs one run at a time (funcd ADR-0347), so a lock found at a run's start was left by an
