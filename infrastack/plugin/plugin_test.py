@@ -372,15 +372,20 @@ class PluginTest(unittest.TestCase):
         self.assertEqual(defaults["input"]["properties"]["variables"]["required"], ["c"], "one with a default is optional")
         bare = infra.contract({"root_module": {}})
         self.assertEqual(bare["output"]["properties"]["outputs"], {}, "a record that would have no member is the empty schema")
-        self.assertEqual(bare["input"]["properties"]["variables"], infra.CLOSED, "but the variables record stays closed")
+        self.assertEqual((bare["input"]["properties"]["variables"], bare["input"]["required"]), (infra.VOID, ["action"]),
+                         "but a module with no variable takes none")
+        optional = infra.contract({"root_module": {"variables": {"region": {"type": "string", "default": "DE"}}}})
+        self.assertEqual(optional["input"]["required"], ["action"], "variables with defaults only are not required")
+        self.assertEqual(optional["input"]["properties"]["variables"]["properties"], {"region": {"type": "string"}})
 
     # scenario: infra-sensitive-only-module
     def test_scenario_infra_sensitive_only_module(self):
-        """funcd ADR-0355 Decision 3, amended 2026-11-24: a module whose only variable is sensitive has a closed variables
-        record with no member, so a run's input that sets it is refused."""
+        """funcd ADR-0355 Decision 3, amended 2026-11-24: a module whose only variable is sensitive takes void variables,
+        a side that takes nothing as funcd ADR-0090 has a Function's, so a run's input that sets it is refused."""
         only_secret = infra.contract({"root_module": {"variables": {"token": {"type": "string", "sensitive": True}}}})
-        self.assertEqual(only_secret["input"]["properties"]["variables"], {"type": "object", "additionalProperties": False})
-        self.assertIn("variables:\n      type: object\n      additionalProperties: false\n", infra.to_yaml(only_secret))
+        self.assertEqual(only_secret["input"]["properties"]["variables"], {"type": "null"})
+        self.assertEqual(only_secret["input"]["required"], ["action"])
+        self.assertIn('variables:\n      type: "null"\n', infra.to_yaml(only_secret), "the string null, not YAML's null")
 
     def test_to_yaml_is_block_style(self):
         self.assertEqual(infra.to_yaml({"a": {"b": ["x", "true", "a b"], "c": {}, "d": 3, "e": False}}),

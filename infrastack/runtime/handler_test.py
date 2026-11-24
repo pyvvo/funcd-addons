@@ -403,6 +403,12 @@ class HandlerTest(unittest.TestCase):
         self.assertEqual(args[3], ["force-unlock", "-force", "6a8b1c3d-0000-4000-8000-000000000001"])
         self.assertTrue(any("which an interrupted run left" in str(c) for c in said.call_args_list))
 
+    def test_a_run_whose_stack_sets_no_variables_has_none(self):
+        """funcd ADR-0355 Decision 3, amended 2026-11-24: void variables, absent or null, are no variables."""
+        for data in ({"action": "apply"}, {"action": "apply", "variables": None}):
+            with self.subTest(data=data):
+                self.assertEqual(handler.Run(Fake(), {"data": data}).variables, {})
+
     def test_a_run_that_cannot_go_on_says_why(self):
         cases = {
             "none of apply, destroy and plan": (Fake(), {"data": {"action": "import"}}),

@@ -100,9 +100,10 @@ in the image of the Addon's `opentofu1` runtime, which each release stamps into 
   provider packages in `.funcd-providers/` and a contract made from the module, and joins them with `funcdctl index`.
   It prints `<ref>@<digest>`.
 - **The contract** has the input `action`, one of `apply`, `destroy` and `plan`, and `variables`, a closed record of
-  the module's variables, the ones with no default required. A sensitive variable is left out, so no run's input holds
-  it: its value comes from a bound Secret's `TF_VAR_<name>`, as in `examples/token-stack.yaml`. A module whose every
-  variable is sensitive gets a closed `variables` record with no member, so a run's input sets none. The output holds
+  the module's variables, the ones with no default required, and `variables` itself required only when one is. A
+  sensitive variable is left out, so no run's input holds it: its value comes from a bound Secret's `TF_VAR_<name>`, as
+  in `examples/token-stack.yaml`. A module with no plain variable takes `variables: {"type": "null"}`, a side that
+  takes nothing as funcd ADR-0090 has a Function's, so a run's input sets none. The output holds
   `outputs`, the plain outputs, none required, and `plan`, a plan run's finding. A wrong variable fails the run's
   creation with 422, naming its path, and the stack shows `InvalidVariables`.
 - **`funcdctl infra outputs <stack> [-n <namespace>] [-o json]`** prints each key of the stack's outputs Secret, with
@@ -162,7 +163,8 @@ in the image of the Addon's `opentofu1` runtime, which each release stamps into 
 ## The reconciler
 
 For each stack funcd sends, the reconciler starts the run of the stack's generation, `<stack>-g<generation>-<uid>`, and
-reads it back; the start is idempotent, so a call sent again starts nothing new. A stack is `Ready` once that run
+reads it back; the start is idempotent, so a call sent again starts nothing new. The run's input carries the stack's
+`config.variables` when it sets some, and no `variables` otherwise. A stack is `Ready` once that run
 succeeded, and shows `Queued`, `Planning`, `AwaitingApproval` (with the `funcdctl job approve` line), `Applying`,
 `ApplyFailed`, `ApplyRejected` or `ApplyCancelled` meanwhile. A deleting stack with `deletion: delete` first waits for
 the run of its generation to end, then starts `<stack>-d<generation>-<uid>`, which destroys it, and goes once that run

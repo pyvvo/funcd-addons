@@ -53,6 +53,15 @@ test('a stack starts the run of its generation, named after it, with its variabl
   assert.deepEqual(results, [{ name: 'bunny-edge', ok: false, reason: 'Queued', message: 'run bunny-edge-g3-9c2e41aa is Pending' }]);
 });
 
+test('a stack that sets no variables starts its run with none', async () => {
+  for (const config of [{ job: 'bunny-edge' }, { job: 'bunny-edge', variables: {} }]) {
+    const ctx = jobs();
+    await call(ctx, [stack({ config })]);
+    assert.deepEqual(ctx.started, [{ alias: 'bunny-edge', input: { action: 'apply' }, name: 'bunny-edge-g3-9c2e41aa' }],
+      JSON.stringify(config));
+  }
+});
+
 test('a stack reports its run: planning, awaiting approval, applying, then Ready', async () => {
   const ctx = jobs();
   await call(ctx, [stack()]);

@@ -66,8 +66,8 @@ PLAN = {
     },
     "required": ["add", "change", "destroy", "replace", "resources"],
 }
-# A closed record with no member.
-CLOSED = {"type": "object", "additionalProperties": False}
+# A side that takes nothing, as funcd ADR-0090 has a Function's.
+VOID = {"type": "null"}
 PLAIN = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")
 YAML_WORDS = ("true", "false", "null", "yes", "no", "on", "off", "y", "n", "~")
 
@@ -112,10 +112,10 @@ def contract(shown: dict) -> dict:
     plan run's finding."""
     root = shown.get("root_module") or {}
     variables = {name: v for name, v in sorted((root.get("variables") or {}).items()) if not v.get("sensitive")}
-    # The variables record stays closed with no member, so a module whose every variable is sensitive admits none in
-    # a run's input (funcd ADR-0355 Decision 3, amended 2026-11-24).
-    inputs = record({name: schema(v.get("type")) for name, v in variables.items()},
-                    sorted(name for name, v in variables.items() if "default" not in v)) or CLOSED
+    needed = sorted(name for name, v in variables.items() if "default" not in v)
+    # A module with no plain variable takes none: its variables are void, and they are required only when a plain
+    # variable has no default (funcd ADR-0355 Decision 3, amended 2026-11-24).
+    inputs = record({name: schema(v.get("type")) for name, v in variables.items()}, needed) or VOID
     outputs = {name: {} for name, o in sorted((root.get("outputs") or {}).items()) if not o.get("sensitive")}
     return {
         "runtime": RUNTIME,
@@ -123,7 +123,7 @@ def contract(shown: dict) -> dict:
             "type": "object",
             "additionalProperties": False,
             "properties": {"action": {"type": "string", "enum": list(ACTIONS)}, "variables": inputs},
-            "required": ["action", "variables"],
+            "required": ["action", "variables"] if needed else ["action"],
         },
         "output": record({"outputs": record(outputs, []), "plan": PLAN}, []),
     }
