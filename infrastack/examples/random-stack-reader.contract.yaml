@@ -1,0 +1,13 @@
+runtime: nodejs22
+input: {}
+output:
+  type: object
+  additionalProperties: false
+  properties:
+    name:
+      type: string
+    tokenSha256:
+      type: string
+  required:
+    - name
+    - tokenSha256

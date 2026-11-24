@@ -1,0 +1,22 @@
+# A Function that reads random-stack's outputs, plain and sensitive, from the Secret the stack's Job owns and writes:
+# it binds the Secret and reads it through ctx.secret, so a later apply's value reaches its next call with no new
+# revision (funcd ADR-0356 Decision 6). Its image is random-stack-reader.mjs, pushed with its contract file
+# (funcdctl push random-stack-reader.mjs <ref>).
+apiVersion: funcd.io/v1alpha1
+kind: Function
+metadata:
+  name: random-stack-reader
+  namespace: default
+  resourceGroup: default
+spec:
+  runtime: nodejs22
+  handler: handle
+  image: registry.example.com/random-stack-reader:0.1.0
+  secrets:
+    - name: random-stack-outputs
+      keys:
+        - name
+        - token
+  bindings:
+    secret:
+      - random-stack-outputs
