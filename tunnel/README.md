@@ -30,7 +30,7 @@ its engine no arguments or files (funcd ADR-0332, ADR-0344). A Tunnel's `spec.co
 | `protocol` | `wss`, the default, or `websocket` for an frps with no TLS hop in front, such as a local test |
 | `host` | the public name that frps routes to this tunnel, `server` by default: a pull zone forwards its own host |
 | `hostRewrite` | the host of the namespace that the edge serves for it, which replaces the visitor's Host header |
-| `edge` | funcd's edge on the workers' bridge: the bridge address and the data plane's port, such as `10.63.0.1:8081` |
+| `edgeAddress`, `edgePort` | funcd's edge on the workers' bridge: the bridge address, such as `10.63.0.1`, and the data plane's port |
 
 A bound Secret holds `FRP_TOKEN`, frps's token; the Secret's other keys do not reach the engine. frpc keeps retrying
 while frps is not up or the token is wrong, and a changed token replaces the engine. The engine is Ready once frpc's
@@ -38,7 +38,7 @@ admin server answers `/healthz` on port 7400.
 
 ## What funcd must provide
 
-- containerd with `server.network.egress` on, and a fixed `server.dataPlaneAddr` port, since `edge` names it.
+- containerd with `server.network.egress` on, and a fixed `server.dataPlaneAddr` port, since `edgePort` names it.
 - funcd ADR-0352: an EgressPolicy whose `appliesTo` names the Tunnel lets its engine dial frps
   (`examples/tunnel.yaml`).
 - funcd ADR-0353: the edge serves the engine on the bridge address, and only its namespace's hosts.

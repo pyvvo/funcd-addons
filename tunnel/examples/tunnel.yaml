@@ -12,7 +12,8 @@ spec:
   config:
     server: team-tunnel.b-cdn.net
     hostRewrite: api.team.funcd.example
-    edge: 10.63.0.1:8081
+    edgeAddress: 10.63.0.1
+    edgePort: 8081
   bindings:
     secret:
       - tunnel-token
