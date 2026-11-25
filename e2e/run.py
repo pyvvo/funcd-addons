@@ -3,9 +3,10 @@ FUNCD_DEV_DOCKER_HOST. rauthy is registered from rauthy/app/addon.yaml, its Secr
 and served at the edge, backed up and restored in place, and it signs a user in at the edge in front of a test add-on
 that echoes the request (traefik/whoami), with a client funcd registers itself; and its password policy, a settings
 kind that the settings Function puts into rauthy through its binding: dev runs it from rauthy/settings, as the Function
-that the IdentityProvider names for itself, and the addon-rauthy lane from its image. funcd is built at e2e/funcd.ref, or
-from the checkout FUNCD_SRC names. Writes work/results.json and exits 1 when a check fails. SAMPLES sets the samples
-per timing (default 1)."""
+that the IdentityProvider names for itself, and the addon-rauthy lane from its image. And an InfraStack whose module
+funcdctl infra push pushed applies on the Addon's OpenTofu image. funcd is built at e2e/funcd.ref, or from the checkout
+FUNCD_SRC names. Writes work/results.json and exits 1 when a check fails. SAMPLES sets the samples per timing (default
+1)."""
 
 import base64
 import hashlib
@@ -32,6 +33,7 @@ FUNCDCTL = BIN / "funcdctl"
 PROBE = MAN / "probe"
 # dev's folder: the probe, and rauthy's settings Function with its manifest (funcd ADR-0341).
 SETTINGS = ROOT / "rauthy" / "settings"
+INFRASTACK = ROOT / "infrastack"
 DEV = WORK / "dev"
 POLICIES = "rauthypasswordpolicys"
 SAMPLES = int(os.environ.get("SAMPLES", "1"))
@@ -269,6 +271,9 @@ def build() -> None:
         if not any(d.glob("*.go")):
             continue
         subprocess.run(["go", "build", "-o", str(BIN / d.name), f"./{d.relative_to(ROOT)}"], cwd=ROOT, check=True, env=env)
+    plugin = INFRASTACK / "plugin"
+    subprocess.run(["python3", str(plugin / "stamp.py"), str(INFRASTACK / "app" / "addon.yaml"), str(plugin / "funcdctl-infra"),
+                    str(BIN / "funcdctl-infra")], check=True)
 
 
 def addon_manifest() -> Path:
@@ -676,6 +681,32 @@ def f266_settings() -> None:
     check("F266: deleting the policy puts rauthy's default back", rc == 0 and v, f"{out}; after {round(took, 1)} s")
 
 
+def f141_stack() -> None:
+    """An InfraStack under dev: the plugin pushes random-stack as an index of Linux bundles, and its Job's run applies the
+    bundle of Docker's platform in the Addon's OpenTofu image, on a Mac too. A folder's dev resolves no tag, so the Job
+    names the digest."""
+    module, layout = WORK / "random-stack", WORK / "stacks"
+    for d in (module, layout):
+        shutil.rmtree(d, ignore_errors=True)
+    shutil.copytree(INFRASTACK / "examples" / "random-stack", module)
+    rc, out = apply(INFRASTACK / "app" / "addon.yaml", ADMIN_TOKEN)
+    check("F141: an admin registers InfraStack", rc == 0, out)
+    rc, out = ctl("infra", "push", str(module), f"oci-layout://{layout}:random-stack")
+    ref, _, digest = out.rpartition("@")
+    check("F143: funcdctl infra push pushes the module", rc == 0 and digest.startswith("sha256:"), out)
+    stack = (INFRASTACK / "examples" / "random-stack.yaml").read_text()
+    pushed = stack.replace("  image: registry.example.com/random-stack:0.1.0\n",
+                           f"  image: {ref}\n  imageDigest: {digest}\n  approval:\n    bypass: true\n")
+    if pushed == stack:
+        raise RuntimeError("infrastack/examples/random-stack.yaml names no registry.example.com/random-stack:0.1.0")
+    rc, out = apply(write("random-stack.yaml", pushed))
+    took = phase("infrastacks", "random-stack", "Ready", 180) if rc == 0 else None
+    check("F141: the stack's run applies on the Addon's OpenTofu image under dev", took is not None,
+          out if rc else f"job {status('jobs', 'random-stack').get('conditions')}; stack {status('infrastacks', 'random-stack')}")
+    name = secret_data("random-stack-outputs").get("name", "")
+    check("F144: its plain output is in its Secret", name.startswith("example-"), name)
+
+
 def main() -> int:
     (WORK / "logs").mkdir(parents=True, exist_ok=True)
     build()
@@ -695,6 +726,7 @@ def main() -> int:
         rc, out = ctl("rauthy", "urls", "login", "-n", "default")
         check("rauthy plugin: funcdctl rauthy urls prints the issuer", rc == 0 and f"issuer:  http://{IDP}/auth/v1/" in out, out)
         f266_settings()
+        f141_stack()
     finally:
         dev.send_signal(signal.SIGINT)
         try:
