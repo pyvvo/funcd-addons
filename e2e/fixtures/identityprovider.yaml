@@ -12,5 +12,8 @@ spec:
   bindings:
     secret:
       - rauthy-keys
+  functions:
+    - kind: RauthyPasswordPolicy
+      ref: rauthy-settings
   ingress:
     host: login.localhost

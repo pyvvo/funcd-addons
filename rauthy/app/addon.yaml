@@ -73,44 +73,9 @@ spec:
           - kind: RauthyPasswordPolicy
             target: spec.config.provider
             resync: 10m
+            # rauthy/settings, which the release workflow publishes as this image (funcd ADR-0358).
             function:
-              ref: rauthy-settings
-            schema:
-              type: object
-              additionalProperties: false
-              properties:
-                provider:
-                  type: string
-                lengthMin:
-                  type: integer
-                  minimum: 8
-                  maximum: 128
-                lengthMax:
-                  type: integer
-                  minimum: 8
-                  maximum: 128
-                lowerCase:
-                  type: integer
-                  minimum: 0
-                upperCase:
-                  type: integer
-                  minimum: 0
-                digits:
-                  type: integer
-                  minimum: 0
-                special:
-                  type: integer
-                  minimum: 0
-                validDays:
-                  type: integer
-                  minimum: 1
-                notRecentlyUsed:
-                  type: integer
-                  minimum: 1
-              required:
-                - provider
-                - lengthMin
-                - lengthMax
+              image: ghcr.io/pyvvo/funcd-rauthy-settings@sha256:2b0cf819477bbcd1fb7161f466a9a571da2f7d33dbf2d9e36858481336b5333f
             constraints:
               count:
                 perTarget: 1

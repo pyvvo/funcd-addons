@@ -27,9 +27,9 @@ objects, the Secret they bind and its plugin.
 
 | Path | What |
 |---|---|
-| `<addon>/app/` | The add-on's App template: `addon.yaml`, the Addon (its runtimes: the one that runs its kind, with the engine, the schema of its objects' `spec.config` and its settings kinds), and the App that holds an object of its kind and the Functions beside it |
-| `<addon>/settings/` | The code of its settings kinds' Function, pushed as any Function |
-| `<addon>/reconciler/` | The code of an engineless kind's Function, pushed as any Function |
+| `<addon>/app/` | The add-on's App template: `addon.yaml`, the Addon (its runtimes: the one that runs its kind, with the engine, the schema of its objects' `spec.config` and its settings kinds), and the App that holds an object of its kind |
+| `<addon>/settings/` | The code and the contract of its settings kinds' Function, which a release publishes as an image |
+| `<addon>/reconciler/` | The code and the contract of an engineless kind's Function, which a release publishes as an image |
 | `<addon>/runtime/` | An image the add-on ships as a runtime, which each release builds and pushes to GHCR |
 | `<addon>/image/` | The image of the add-on's engine, which each release builds and pushes to GHCR |
 | `<addon>/examples/` | Objects of its kind, and what uses them |
@@ -42,7 +42,8 @@ objects, the Secret they bind and its plugin.
 
 release-please keeps a release PR open on `main`. Merging it tags `v<version>`, and the release workflow runs the
 end-to-end check on that tag, then attaches each `app/addon.yaml` (as `<addon>.yaml`) and each plugin for Linux and macOS
-to the release, and pushes each add-on's images to GHCR for linux/amd64 and linux/arm64, tagged `<version>`.
+to the release, and pushes each add-on's images to GHCR for linux/amd64 and linux/arm64, and its kinds' Functions, tagged
+`<version>`. An Addon pins a Function's digest before its release: `just kind-images` writes it.
 
 ## Develop
 

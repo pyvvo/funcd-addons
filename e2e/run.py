@@ -2,7 +2,8 @@
 FUNCD_DEV_DOCKER_HOST. rauthy is registered from rauthy/app/addon.yaml, its Secret written by its plugin, its engine run
 and served at the edge, backed up and restored in place, and it signs a user in at the edge in front of a test add-on
 that echoes the request (traefik/whoami), with a client funcd registers itself; and its password policy, a settings
-kind that the settings Function puts into rauthy through its binding. funcd is built at e2e/funcd.ref, or
+kind that the settings Function puts into rauthy through its binding: dev runs it from rauthy/settings, as the Function
+that the IdentityProvider names for itself, and the addon-rauthy lane from its image. funcd is built at e2e/funcd.ref, or
 from the checkout FUNCD_SRC names. Writes work/results.json and exits 1 when a check fails. SAMPLES sets the samples
 per timing (default 1)."""
 
@@ -317,10 +318,10 @@ def dev_folder() -> None:
     the API key that rauthy-keys bootstraps; dev runs each from its local build, found by its name."""
     shutil.rmtree(DEV, ignore_errors=True)
     shutil.copytree(PROBE, DEV)
-    for f in SETTINGS.iterdir():
-        shutil.copy(f, DEV / f.name)
+    for name in ("rauthy-settings.mjs", "rauthy-settings.contract.yaml"):
+        shutil.copy(SETTINGS / name, DEV / name)
     (DEV / "rauthy-settings.yaml").write_text(manifest("Function", "rauthy-settings", (
-        "  runtime: nodejs22\n  handler: reconcile\n  image: oci-layout:///mnt/funcd-deps/registry:rauthy-settings\n"
+        "  runtime: nodejs22\n  handler: handle\n  image: oci-layout:///mnt/funcd-deps/registry:rauthy-settings\n"
         "  ingress:\n    enabled: false\n"
         "  secrets:\n    - name: rauthy-keys\n      keys:\n        - BOOTSTRAP_API_KEY_SECRET\n"
         "  bindings:\n    addon:\n      - alias: idp\n        object: login\n    secret:\n      - rauthy-keys\n")))

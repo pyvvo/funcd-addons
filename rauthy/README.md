@@ -50,28 +50,25 @@ settings Function, which puts it into rauthy through its binding of the Identity
 policy changed at rauthy's own API is put back. Deleting the object puts rauthy's default back. A provider holds one
 policy, and `lengthMin` may not exceed `lengthMax`.
 
-The settings Function is [`settings/rauthy-settings.mjs`](settings/rauthy-settings.mjs), which signs in to rauthy with
-the API key `settings` that `funcdctl rauthy keys` has rauthy create at its first start. Push it as any Function, then
-apply a policy such as [`examples/passwordpolicy.yaml`](examples/passwordpolicy.yaml):
-
 ```sh
-funcdctl push settings/rauthy-settings.mjs <registry>/rauthy-settings:0.2.0
 funcdctl apply -f examples/passwordpolicy.yaml
 funcdctl get rauthypasswordpolicys -n default
 ```
 
-The kind's Function is `rauthy-settings` of the IdentityProvider's namespace, which binds the IdentityProvider as an
-add-on object; an IdentityProvider may name its own in `spec.functions`.
+The settings Function is [`settings/rauthy-settings.mjs`](settings/rauthy-settings.mjs), whose contract is the kind's
+schema. The release workflow publishes it as `ghcr.io/pyvvo/funcd-rauthy-settings`, the Addon names that image by its
+digest, and funcd creates the Function `<identityprovider>-rauthypasswordpolicy` once a policy names the
+IdentityProvider (funcd ADR-0358). It signs in to rauthy with the API key `settings` that `funcdctl rauthy keys` has
+rauthy create at its first start, so the IdentityProvider binds that Secret. An IdentityProvider may name its own
+Function in `spec.functions`.
 
 ## Deploy it as an App
 
 [`app/`](app/) is an App template that carries the Addon: `funcdctl app deploy` by an admin registers or updates the
-Addon, then deploys an App that holds an IdentityProvider `<app>-login` and its settings Function `<app>-settings`, which
-the IdentityProvider names for its policies. A developer's deploy needs the kind registered already. The values are
-the registry the settings Function was pushed to, `host`, and `https`:
+Addon, then deploys an App that holds an IdentityProvider `<app>-login`. A developer's deploy needs the kind registered
+already. The values are `host` and `https`, and `keys`, the Secret that `funcdctl rauthy keys` writes:
 
 ```sh
-funcdctl app lock app -f values.yaml
 funcdctl push --template app <registry>/rauthy:0.2.0
 funcdctl app deploy <registry>/rauthy:0.2.0 -f values.yaml --name web-auth
 ```

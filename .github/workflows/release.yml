@@ -140,3 +140,13 @@ jobs:
           shim=$(nix develop --command just opentofu-shim)
           build funcd-opentofu infrastack/runtime --build-context "shim=$shim/shim" -f infrastack/runtime/Dockerfile
           if [ -d tunnel/image ]; then build funcd-tunnel tunnel/image; fi
+
+      # The Functions of the add-ons' kinds, which the Addons pin already (funcd ADR-0358): the push fails when a digest is
+      # another one.
+      - name: Push the kinds' Functions
+        env:
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          nix develop --command just funcdctl
+          nix develop --command python3 e2e/kind_images.py work/bin/funcdctl --to ghcr.io/pyvvo --tag "${TAG#v}" | tee -a "$GITHUB_STEP_SUMMARY"

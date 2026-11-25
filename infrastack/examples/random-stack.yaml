@@ -1,7 +1,6 @@
 # One stack without an App: its state's Bucket prefix, which its Job owns; the ConfigMap that names it to the OpenTofu
 # runtime; the Secret that gets its outputs, plain and sensitive, one key per output; its Job, whose image is the random-stack module pushed with its
-# contract (funcdctl push random-stack <ref> --entry main.tf); the reconciler Function, which binds the Job; and the
-# InfraStack itself.
+# contract (funcdctl push random-stack <ref> --entry main.tf); and the InfraStack itself, which binds the Job.
 apiVersion: funcd.io/v1alpha1
 kind: Bucket
 metadata:
@@ -75,23 +74,6 @@ spec:
       - random-stack-outputs
 ---
 apiVersion: funcd.io/v1alpha1
-kind: Function
-metadata:
-  name: infrastack-reconciler
-  namespace: default
-  resourceGroup: default
-spec:
-  runtime: nodejs22
-  handler: reconcile
-  image: registry.example.com/infrastack-reconciler:0.1.0
-  ingress:
-    enabled: false
-  bindings:
-    job:
-      - alias: random-stack
-        job: random-stack
----
-apiVersion: funcd.io/v1alpha1
 kind: InfraStack
 metadata:
   name: random-stack
@@ -99,7 +81,10 @@ metadata:
   resourceGroup: default
 spec:
   deletion: delete
+  bindings:
+    job:
+      - alias: stack
+        job: random-stack
   config:
-    job: random-stack
     variables:
       prefix: example

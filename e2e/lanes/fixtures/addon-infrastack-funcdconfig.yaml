@@ -1,6 +1,6 @@
 # The addon-infrastack lane's daemon config: the containerd runtime with file storage, the S3 gateway on the bridge for
-# the stacks' state, GHCR in addons.registries for the OpenTofu runtime's image and the lane's registry 127.0.0.1:5443
-# for one built locally, and an admin's and a developer's credentials.
+# the stacks' state, GHCR in addons.registries for the OpenTofu runtime's image, the lane's registries 127.0.0.1:5443
+# and 127.0.0.1:5444 for one built locally and for the reconciler's image, and an admin's and a developer's credentials.
 apiVersion: funcd.io/v1alpha1
 kind: FuncdConfig
 server:
@@ -26,6 +26,7 @@ addons:
   registries:
     - ghcr.io
     - 127.0.0.1:5443
+    - 127.0.0.1:5444
 log:
   format: text
   level: info

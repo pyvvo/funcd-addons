@@ -1,7 +1,7 @@
 # Venom e2e suite for the addon-frp-bunny containerd lane: funcd-functions' frp-bunny App with no spend, egress on. An
 # admin registers pyvvo/funcd-addons' InfraStack and Tunnel Addons; the App's template, locked against the guest's OCI
-# layout, holds the stack (the fake module in place of Bunny's, with the same variables and outputs), its Job and the
-# reconciler, the hello Function on its host, and the Tunnel. The stack's approved run writes FRP_TOKEN into the outputs
+# layout, holds the stack (the fake module in place of Bunny's, with the same variables and outputs) and its Job, the
+# hello Function on its host, and the Tunnel. The stack's approved run writes FRP_TOKEN into the outputs
 # Secret, which the Tunnel binds; frps runs on the bridge with that token, the Tunnel's engine dials it through the
 # egress gateway under the EgressPolicy that names it (ADR-0352), and a call to frps with the public host reaches the
 # hello Function through frpc and the edge on the bridge address (ADR-0353). The apply replaces the Tunnel's engine with
@@ -9,7 +9,8 @@
 # (ADR-0345 Decision 8).
 #
 # The lane builds the OpenTofu runtime's image from the add-on's runtime/ and stages it as opentofu.tar, which a
-# funcd e2e/laneregistry in the VM serves for the InfraStack Addon. The Tunnel Addon pulls its image from GHCR by the
+# funcd e2e/laneregistry in the VM serves for the InfraStack Addon, and another one the reconciler's image, which funcd
+# creates the stack's Function from (ADR-0358). The Tunnel Addon pulls its image from GHCR by the
 # digest it pins, or from a second e2e/laneregistry when the lane stages tunnel.tar too.
 name: addon-frp-bunny — an App's stack, its Tunnel and its hello Function, reached through frps (containerd lane)
 
@@ -33,13 +34,18 @@ testcases:
                 "/opt/lane/$1.crt" "/opt/lane/$2.digest"
               for i in $(seq 120); do [ -s "/opt/lane/$2.digest" ] && break; sleep 1; done
               install -m 0644 "/opt/lane/$1.crt" "/usr/local/share/ca-certificates/funcd-$1.crt"
-              sed -i -E "s#ghcr.io/pyvvo/funcd-$2@sha256:[A-Za-z0-9-]+#127.0.0.1:$3/funcd/$2@$(cat /opt/lane/$2.digest)#" "/opt/lane/$2-addon.yaml"
+              sed -i -E "s#ghcr.io/pyvvo/funcd-$2@sha256:[A-Za-z0-9-]+#127.0.0.1:$3/funcd/$2@$(cat /opt/lane/$2.digest)#" "/opt/lane/$4-addon.yaml"
             }
-            serve lane-registry opentofu 5443
+            serve lane-registry opentofu 5443 opentofu
+            d=$(mktemp -d /opt/lane/kind.XXXXXX)
+            funcdctl push /opt/lane/infrastack-reconciler.mjs "oci-layout://$d:infrastack-reconciler"
+            tar -C "$d" -cf /opt/lane/infrastack-reconciler.tar .
+            serve lane-registry-kind infrastack-reconciler 5445 opentofu
             tunnel=FROM_GHCR
-            if [ -f /opt/lane/tunnel.tar ]; then serve lane-registry-tunnel tunnel 5444; tunnel=FROM_LANE_REGISTRY; fi
+            if [ -f /opt/lane/tunnel.tar ]; then serve lane-registry-tunnel tunnel 5444 tunnel; tunnel=FROM_LANE_REGISTRY; fi
             update-ca-certificates >/dev/null
             curl -sf -o /dev/null https://127.0.0.1:5443/v2/
+            curl -sf -o /dev/null https://127.0.0.1:5445/v2/
             [ "$tunnel" = FROM_GHCR ] || curl -sf -o /dev/null https://127.0.0.1:5444/v2/
             systemctl stop funcd-demo
             systemctl reset-failed funcd-demo 2>/dev/null || true
@@ -68,7 +74,6 @@ testcases:
             set -e
             funcdctl push infra/fake {{.registry}}/frp-bunny-module:0.1.0 --entry main.tf
             funcdctl push hello/hello.mjs {{.registry}}/frp-bunny-hello:0.1.0
-            funcdctl push infrastack-reconciler.mjs {{.registry}}/infrastack-reconciler:0.1.0
             funcdctl app lock app -f values/lane.yaml
             funcdctl push --template app {{.registry}}/frp-bunny:0.1.0
             echo PUSHED'
@@ -257,7 +262,7 @@ testcases:
         script: |
           limactl shell --workdir / {{.vm}} sudo bash -c '
             export FUNCD_SERVER=http://127.0.0.1:8080
-            systemctl stop lane-frps lane-registry lane-registry-tunnel 2>/dev/null || true
+            systemctl stop lane-frps lane-registry lane-registry-kind lane-registry-tunnel 2>/dev/null || true
             rm -f /opt/lane/frp.token /opt/lane/frps.toml /opt/lane/frpc.pid
             for s in frp-outputs bunny-api; do FUNCD_TOKEN={{.devtoken}} funcdctl delete secret $s -n default || true; done
             FUNCD_TOKEN={{.devtoken}} funcdctl delete egresspolicy frp-tunnel -n default || true

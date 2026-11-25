@@ -1,3 +1,80 @@
+# The contract of rauthy's settings Function: funcd's call (funcd ADR-0341 Decision 2), whose config is the schema of the
+# kind RauthyPasswordPolicy (funcd ADR-0358 Decision 3).
 runtime: nodejs22
-input: {}
+input:
+  type: object
+  additionalProperties: false
+  properties:
+    kind:
+      type: string
+      enum:
+        - RauthyPasswordPolicy
+    cause:
+      type: string
+    target:
+      type: object
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+        name:
+          type: string
+        alias:
+          type: string
+      required:
+        - alias
+    objects:
+      type: array
+      items:
+        type: object
+        additionalProperties: false
+        properties:
+          name:
+            type: string
+          uid:
+            type: string
+          generation:
+            type: integer
+          config:
+            type: object
+            additionalProperties: false
+            properties:
+              provider:
+                type: string
+              lengthMin:
+                type: integer
+                minimum: 8
+                maximum: 128
+              lengthMax:
+                type: integer
+                minimum: 8
+                maximum: 128
+              lowerCase:
+                type: integer
+                minimum: 0
+              upperCase:
+                type: integer
+                minimum: 0
+              digits:
+                type: integer
+                minimum: 0
+              special:
+                type: integer
+                minimum: 0
+              validDays:
+                type: integer
+                minimum: 1
+              notRecentlyUsed:
+                type: integer
+                minimum: 1
+            required:
+              - provider
+              - lengthMin
+              - lengthMax
+        required:
+          - name
+          - config
+  required:
+    - target
+    - objects
 output: {}

@@ -1,9 +1,10 @@
 # InfraStack
 
 An add-on that manages infrastructure outside funcd with OpenTofu (funcd FEAT-0012 F141). Its kind, `InfraStack`, runs
-no engine (funcd ADR-0345): a Function of the namespace, the reconciler, drives one Job per stack, and the Job runs on
-the add-on's OpenTofu runtime (funcd ADR-0344). Each run previews its plan and waits for a person's approval unless the
-Job says `approval.bypass` (funcd ADR-0348), and it applies only the plan that the person approved.
+no engine (funcd ADR-0345): a Function, the reconciler, which funcd creates for each stack from the Addon's image (funcd
+ADR-0358), drives the stack's Job, and the Job runs on the add-on's OpenTofu runtime (funcd ADR-0344). Each run previews
+its plan and waits for a person's approval unless the Job says `approval.bypass` (funcd ADR-0348), and it applies only
+the plan that the person approved.
 
 ```text
 infrastack/
@@ -45,14 +46,14 @@ infrastack/
 ## The Addon
 
 `app/addon.yaml` ships two runtimes. `opentofu1` serves Jobs: funcd's Python shim, OpenTofu and its providers, and the
-handler of `runtime/`. `infrastack` serves `Engineless`: it adds the kind `InfraStack`, whose Function is
-`infrastack-reconciler`, with a resync of one minute, so a run that turns `AwaitingApproval` shows on its stack within
-a minute. A stack's `spec.config` holds `job`, the alias under which the reconciler binds the stack's Job, the same as
-the Job's name, `variables`, the module's variables, and `drift`, an optional schedule of drift checks.
+handler of `runtime/`. `infrastack` serves `Engineless`: it adds the kind `InfraStack`, whose Function is the image of
+`reconciler/`, with a resync of one minute, so a run that turns `AwaitingApproval` shows on its stack within a minute.
+A stack binds its Job in `spec.bindings.job`, under the alias `stack`, and its `spec.config` holds `variables`, the
+module's variables, and `drift`, an optional schedule of drift checks; the reconciler's contract is its schema.
 
 ## A stack
 
-A stack is six objects of one namespace; `examples/random-stack.yaml` holds them all:
+A stack is five objects of one namespace; `examples/random-stack.yaml` holds them all:
 
 | Object | Holds |
 |---|---|
@@ -60,8 +61,7 @@ A stack is six objects of one namespace; `examples/random-stack.yaml` holds them
 | a ConfigMap | `INFRASTACK_STATE_BUCKET`, `INFRASTACK_STATE_PREFIX` and, optionally, `INFRASTACK_OUTPUTS_SECRET` |
 | a Secret | the stack's outputs, plain and sensitive, one key each, written by its Job, which owns it |
 | the Job | the module as its image, on `opentofu1`, with the blob binding `state`, the ConfigMap and the Secrets |
-| the reconciler Function | `bindings.job`: one entry per stack, its alias the Job's name |
-| the InfraStack | `config.job`, `config.variables` and `deletion` |
+| the InfraStack | `bindings.job`, the Job as `stack`, `config.variables` and `deletion` |
 
 The Job's image is the module, pushed with `funcdctl infra push <module> <ref>` (below). A run's input is
 `{"action": "apply" | "destroy" | "plan", "variables": {...}}`; its output is `{"outputs": {...}}` for an apply, `{}`
@@ -71,8 +71,7 @@ providers.
 
 `examples/token-stack.yaml` is a stack whose module takes its sensitive variable `token` from the Secret its Job binds,
 as `TF_VAR_token`, and `examples/random-stack-reader.yaml` is a Function that reads random-stack's outputs through
-`ctx.secret`. Each stack's example holds the reconciler Function with its own Job's binding: for both stacks in one
-namespace, it binds both Jobs.
+`ctx.secret`.
 
 The Job's bound Secrets give OpenTofu its environment: each key in upper case, such as `BUNNYNET_API_KEY`, and each
 `TF_VAR_<variable>`. A key that starts with `AWS_` never reaches OpenTofu, since the state's S3 key pair takes that
@@ -162,7 +161,7 @@ in the image of the Addon's `opentofu1` runtime, which each release stamps into 
 
 ## The reconciler
 
-For each stack funcd sends, the reconciler starts the run of the stack's generation, `<stack>-g<generation>-<uid>`, and
+For the stack funcd sends, the reconciler starts the run of the stack's generation, `<stack>-g<generation>-<uid>`, and
 reads it back; the start is idempotent, so a call sent again starts nothing new. The run's input carries the stack's
 `config.variables` when it sets some, and no `variables` otherwise. A stack is `Ready` once that run
 succeeded, and shows `Queued`, `Planning`, `AwaitingApproval` (with the `funcdctl job approve` line), `Applying`,
@@ -197,9 +196,9 @@ Unset, a stack is never checked; another value shows `ConfigInvalid`, naming why
 
 ## In an App
 
-An App holds a stack as it holds the six objects above (funcd ADR-0350 for its Job): its template's `images` name the
-module's bundle and the reconciler, since a template's Job and Function take only its own images, so `app/` holds the
-Addon alone. funcd-functions' frp-bunny App is the example.
+An App holds a stack as it holds the five objects above (funcd ADR-0350 for its Job): its template's `images` name the
+module's bundle, since a template's Job takes only its own images, so `app/` holds the Addon alone. funcd-functions'
+frp-bunny App is the example.
 
 A stack that is not `Ready` is a `Lagging` part of its App (funcd ADR-0357 Decision 1), and the App's post-hooks and
 prune wait while it lags (Decision 4). A drift check counts the same: a stack that shows `Drifted`,
@@ -224,7 +223,9 @@ the image's folder out of reach, one whose provider package matches no hash of i
 `infra-push-check` pushes a module with a local child through the plugin into an OCI layout and reads back the index,
 the contract and each platform's packages. CI runs both.
 The release workflow publishes `ghcr.io/pyvvo/funcd-opentofu` for linux/amd64 and linux/arm64, with the shim of the
-funcd-python release that `pins.json` names.
+funcd-python release that `pins.json` names, and the reconciler as `ghcr.io/pyvvo/funcd-infrastack-reconciler`. `just
+kind-images` writes the digest of each kind's Function, which `funcdctl push` gives the same files anywhere, into its
+Addon.
 
 ## Not yet
 

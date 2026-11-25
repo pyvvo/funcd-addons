@@ -1,3 +1,43 @@
+# The contract of InfraStack's Function: funcd's call (funcd ADR-0345 Decision 2), whose config is the schema of the kind
+# InfraStack (funcd ADR-0358 Decision 3). The module's own contract checks the variables when a run starts.
 runtime: nodejs22
-input: {}
+input:
+  type: object
+  additionalProperties: false
+  properties:
+    kind:
+      type: string
+      enum:
+        - InfraStack
+    cause:
+      type: string
+    objects:
+      type: array
+      items:
+        type: object
+        additionalProperties: false
+        properties:
+          name:
+            type: string
+          uid:
+            type: string
+          generation:
+            type: integer
+          deleting:
+            type: boolean
+          config:
+            type: object
+            additionalProperties: false
+            properties:
+              variables: {}
+              # A cron of funcd ADR-0211's grammar, in UTC: when the reconciler checks an applied stack for drift.
+              drift:
+                type: string
+        required:
+          - name
+          - uid
+          - generation
+          - config
+  required:
+    - objects
 output: {}
