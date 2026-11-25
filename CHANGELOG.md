@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.3](https://github.com/pyvvo/funcd-addons/compare/v0.8.2...v0.8.3) (2026-11-25)
+
+
+### Bug Fixes
+
+* **infrastack:** funcdctl infra push streams its files, so it works with a nerdctl in a VM ([#36](https://github.com/pyvvo/funcd-addons/issues/36)) ([4ee8930](https://github.com/pyvvo/funcd-addons/commit/4ee8930e3fa69d0e6cce99ea077c1edf5573191c))
+
 ## [0.8.2](https://github.com/pyvvo/funcd-addons/compare/v0.8.1...v0.8.2) (2026-11-25)
 
 
