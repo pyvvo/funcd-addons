@@ -6,9 +6,10 @@
 
 addon-rauthy:
   description: An admin registers rauthy, an add-on built outside funcd, from its published image pinned by digest, and a developer's IdentityProvider of it turns Ready on real containerd; the edge serves its /auth/v1/ping at its host with the path kept, answers 404 to its private path however it is spelled, and the engine's netns admits only funcd (ADR-0332).
-  # rauthy's App template, with its Addon app/addon.yaml, and its settings Function are rauthy/app and rauthy/settings;
-  # the lane's own IdentityProvider, its test keys, the settings Function's manifest, the policies, the template's values
-  # and its daemon config are the lane's fixtures.
+  # rauthy's App template, with its Addon app/addon.yaml, and its settings Function are rauthy/app and rauthy/settings:
+  # the suite pushes the Function in the VM and funcd's e2e/laneregistry serves it there, at the digest that the Addon
+  # pins. The lane's own IdentityProvider, its test keys, the policies, the template's values and its daemon config are
+  # the lane's fixtures.
   dir: rauthy
   stage:
     - app
@@ -19,8 +20,6 @@ addon-rauthy:
       to: rauthy-keys.yaml
     - from: e2e/lanes/fixtures/addon-rauthy-login.yaml
       to: login.yaml
-    - from: e2e/lanes/fixtures/addon-rauthy-settings.yaml
-      to: settings-function.yaml
     - from: e2e/lanes/fixtures/addon-rauthy-policy.yaml
       to: policy.yaml
     - from: e2e/lanes/fixtures/addon-rauthy-web-auth-policy.yaml
@@ -106,7 +105,7 @@ addon-infrastack:
   # The add-on's files are this repository's, at the commit under test. The build makes the OpenTofu runtime's image
   # from infrastack/runtime with the add-on's own recipe, run at FUNCD_LANES_ROOT, and the shim its pins.json names, so
   # the runs and the plugin use the runtime under test whatever image the Addon pins; funcd's e2e/laneregistry serves it
-  # in the VM. The build writes opentofu.tar into the lane's dir, so the lane builds in a writable copy of
+  # in the VM, and the reconciler's image, which the suite pushes there, at the digest that the Addon pins. The build writes opentofu.tar into the lane's dir, so the lane builds in a writable copy of
   # infrastack/examples, inside funcd's checkout.
   dir: infrastack/examples
   copy: true
@@ -136,8 +135,6 @@ addon-infrastack:
     developer: addon-infrastack-lane-developer
   # The suite pushes the modules with the add-on's plugin.
   push:
-    - artifact: infrastack-reconciler.mjs
-      ref: infrastack-reconciler
     - artifact: random-stack-reader.mjs
       ref: random-stack-reader
   venom: e2e/lanes/addon-infrastack.venom.yml
@@ -197,10 +194,6 @@ addon-frp-bunny-live:
       to: opentofu-addon.yaml
     - from: tunnel/app/addon.yaml
       to: tunnel-addon.yaml
-    - from: infrastack/reconciler/infrastack-reconciler.mjs
-      to: infrastack-reconciler.mjs
-    - from: infrastack/reconciler/infrastack-reconciler.contract.yaml
-      to: infrastack-reconciler.contract.yaml
     - from: e2e/lanes/fixtures/frp-bunny/funcdconfig.yaml
       to: funcdconfig.yaml
     - from: e2e/lanes/fixtures/frp-bunny/live-outputs.yaml

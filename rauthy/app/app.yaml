@@ -1,13 +1,8 @@
 name: rauthy
 version: 0.2.0
-registry: ${{ values.registry }}
-images:
-  settings: rauthy-settings:0.2.0
 valuesSchema:
   type: object
   properties:
-    registry:
-      type: string
     host:
       type: string
     publicHost:
@@ -20,5 +15,4 @@ valuesSchema:
       type: string
       default: rauthy-keys
   required:
-    - registry
     - host

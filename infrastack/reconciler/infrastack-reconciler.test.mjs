@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { driftRunName, GRAMMAR, latestDue, parseCron, reconcile, reconcileAt, runName } from './infrastack-reconciler.mjs';
+import { driftRunName, GRAMMAR, latestDue, parseCron, handle, reconcileAt, runName } from './infrastack-reconciler.mjs';
 
 class JobError extends Error {
   constructor(status, message) {
@@ -38,26 +38,26 @@ const stack = (extra = {}) => ({
   uid: '9c2e41aa-5b1d-4c6e-9f00-0123456789ab',
   generation: 3,
   deleting: false,
-  config: { job: 'bunny-edge', variables: { zone: 'funcd-tunnel' } },
+  config: { variables: { zone: 'funcd-tunnel' } },
   ...extra,
 });
 
-const call = (ctx, objects, cause = 'change') => reconcile(ctx, { data: { kind: 'InfraStack', cause, objects } });
+const call = (ctx, objects, cause = 'change') => handle(ctx, { data: { kind: 'InfraStack', cause, objects } });
 
 test('a stack starts the run of its generation, named after it, with its variables', async () => {
   const ctx = jobs();
   const { results } = await call(ctx, [stack()]);
   assert.deepEqual(ctx.started, [
-    { alias: 'bunny-edge', input: { action: 'apply', variables: { zone: 'funcd-tunnel' } }, name: 'bunny-edge-g3-9c2e41aa' },
+    { alias: 'stack', input: { action: 'apply', variables: { zone: 'funcd-tunnel' } }, name: 'bunny-edge-g3-9c2e41aa' },
   ]);
   assert.deepEqual(results, [{ name: 'bunny-edge', ok: false, reason: 'Queued', message: 'run bunny-edge-g3-9c2e41aa is Pending' }]);
 });
 
 test('a stack that sets no variables starts its run with none', async () => {
-  for (const config of [{ job: 'bunny-edge' }, { job: 'bunny-edge', variables: null }, { job: 'bunny-edge', variables: {} }]) {
+  for (const config of [{}, { variables: null }, { variables: {} }]) {
     const ctx = jobs();
     await call(ctx, [stack({ config })]);
-    assert.deepEqual(ctx.started, [{ alias: 'bunny-edge', input: { action: 'apply' }, name: 'bunny-edge-g3-9c2e41aa' }],
+    assert.deepEqual(ctx.started, [{ alias: 'stack', input: { action: 'apply' }, name: 'bunny-edge-g3-9c2e41aa' }],
       JSON.stringify(config));
   }
 });
@@ -65,7 +65,7 @@ test('a stack that sets no variables starts its run with none', async () => {
 test('malformed variables reach the run as they are, so its creation refuses them', async () => {
   for (const variables of ['prefix=a', 3, [], [{ prefix: 'a' }]]) {
     const ctx = jobs();
-    await call(ctx, [stack({ config: { job: 'bunny-edge', variables } })]);
+    await call(ctx, [stack({ config: { variables } })]);
     assert.deepEqual(ctx.started.map((s) => s.input), [{ action: 'apply', variables }], JSON.stringify(variables));
   }
 });
@@ -117,7 +117,7 @@ test('a deleting stack waits for its apply run, then destroys, and goes once the
   ctx.runs.get('bunny-edge-g3-9c2e41aa').phase = 'Rejected';
   const { results: destroying } = await call(ctx, [stack({ deleting: true })]);
   assert.deepEqual(ctx.started.at(-1), {
-    alias: 'bunny-edge',
+    alias: 'stack',
     input: { action: 'destroy', variables: { zone: 'funcd-tunnel' } },
     name: 'bunny-edge-d3-9c2e41aa',
   });
@@ -144,13 +144,6 @@ test('a refused start names its cause', async () => {
   }
 });
 
-test('a stack whose config names no Job is refused alone', async () => {
-  const ctx = jobs();
-  const { results } = await call(ctx, [stack({ name: 'a', config: {} }), stack()]);
-  assert.equal(results[0].reason, 'ConfigInvalid');
-  assert.equal(results[1].reason, 'Queued');
-});
-
 test('a run name is a DNS label of at most 63 characters', () => {
   const long = stack({ name: `${'a'.repeat(50)}-${'b'.repeat(12)}`, generation: 12345 });
   for (const action of ['apply', 'destroy']) {
@@ -163,7 +156,7 @@ test('a run name is a DNS label of at most 63 characters', () => {
 // Drift checks (F141): a stack whose config.drift holds a cron, its apply run done at APPLIED.
 const APPLIED = '2026-11-24T08:30:00Z';
 const at = (iso) => new Date(iso);
-const drifting = (extra = {}) => stack({ config: { job: 'bunny-edge', variables: { zone: 'funcd-tunnel' }, drift: '0 * * * *' }, ...extra });
+const drifting = (extra = {}) => stack({ config: { variables: { zone: 'funcd-tunnel' }, drift: '0 * * * *' }, ...extra });
 const callAt = (ctx, objects, iso) => reconcileAt(ctx, { data: { kind: 'InfraStack', cause: 'resync', objects } }, at(iso));
 
 // applied is a ctx whose stack's generation run succeeded at APPLIED.
@@ -224,7 +217,7 @@ test('at its due time an applied stack starts one plan run, named after that tim
   const ctx = applied();
   const { results } = await callAt(ctx, [drifting()], '2026-11-24T10:07:00Z');
   assert.deepEqual(ctx.started.at(-1), {
-    alias: 'bunny-edge',
+    alias: 'stack',
     input: { action: 'plan', variables: { zone: 'funcd-tunnel' } },
     name: 'bunny-edge-c3-202611241000-9c2e41aa',
   });
@@ -237,8 +230,8 @@ test('at its due time an applied stack starts one plan run, named after that tim
 
 test("a stack that sets no variables starts its drift check with none", async () => {
   const ctx = applied();
-  await callAt(ctx, [drifting({ config: { job: 'bunny-edge', drift: '0 * * * *' } })], '2026-11-24T10:07:00Z');
-  assert.deepEqual(ctx.started.at(-1), { alias: 'bunny-edge', input: { action: 'plan' }, name: 'bunny-edge-c3-202611241000-9c2e41aa' });
+  await callAt(ctx, [drifting({ config: { drift: '0 * * * *' } })], '2026-11-24T10:07:00Z');
+  assert.deepEqual(ctx.started.at(-1), { alias: 'stack', input: { action: 'plan' }, name: 'bunny-edge-c3-202611241000-9c2e41aa' });
 });
 
 test('a finding that would change anything is Drifted, naming the run, the counts and the resources', async () => {
@@ -322,7 +315,7 @@ test('a check that awaits approval holds every later due time, and says so', asy
 
 test('a check that has not ended 100 due times on holds the next one no more', async () => {
   const ctx = applied();
-  const minutely = drifting({ config: { job: 'bunny-edge', variables: { zone: 'funcd-tunnel' }, drift: '* * * * *' } });
+  const minutely = drifting({ config: { variables: { zone: 'funcd-tunnel' }, drift: '* * * * *' } });
   await callAt(ctx, [minutely], '2026-11-24T09:00:00Z');
   ctx.runs.get(driftRunName(minutely, at('2026-11-24T09:00:00Z'))).phase = 'Running';
   await callAt(ctx, [minutely], '2026-11-24T10:40:00Z');
@@ -403,11 +396,11 @@ test('a refused check names its cause, a contract that refuses it is DriftCheckR
   const { results: older } = await callAt(old, [drifting()], '2026-11-24T10:07:00Z');
   assert.deepEqual(older, [{
     name: 'bunny-edge', ok: false, reason: 'DriftCheckRefused',
-    message: 'drift check bunny-edge-c3-202611241000-9c2e41aa of the Job bound as bunny-edge: the input does not match ' +
+    message: 'drift check bunny-edge-c3-202611241000-9c2e41aa of the Job bound as stack: the input does not match ' +
       'the contract: action must be apply or destroy; a module pushed before funcd ADR-0355 takes no action plan: push ' +
       'it again with funcdctl infra push',
   }]);
-  const bad = drifting({ config: { job: 'bunny-edge', drift: '@every 1h' } });
+  const bad = drifting({ config: { drift: '@every 1h' } });
   const { results: refused } = await callAt(applied(), [bad], '2026-11-24T10:07:00Z');
   assert.equal(refused[0].reason, 'ConfigInvalid');
   assert.match(refused[0].message, /^config\.drift: it has 2 fields; a cron is five fields/);

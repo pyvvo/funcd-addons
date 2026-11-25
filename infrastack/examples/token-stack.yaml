@@ -2,7 +2,7 @@
 # funcdctl infra push token-stack <ref>, whose contract leaves token out, so a run whose variables set it is refused.
 # OpenTofu reads it from TF_VAR_token, a key of the Secret token-stack-token that the Job binds (funcd ADR-0355
 # Decision 3). The state has a Bucket of its own, and the ConfigMap names no outputs Secret, so the plain output is in
-# the run's result alone. The reconciler Function binds this stack's Job: beside random-stack, it binds both.
+# the run's result alone.
 apiVersion: funcd.io/v1alpha1
 kind: Bucket
 metadata:
@@ -70,23 +70,6 @@ spec:
       - token-stack-token
 ---
 apiVersion: funcd.io/v1alpha1
-kind: Function
-metadata:
-  name: infrastack-reconciler
-  namespace: default
-  resourceGroup: default
-spec:
-  runtime: nodejs22
-  handler: reconcile
-  image: registry.example.com/infrastack-reconciler:0.1.0
-  ingress:
-    enabled: false
-  bindings:
-    job:
-      - alias: token-stack
-        job: token-stack
----
-apiVersion: funcd.io/v1alpha1
 kind: InfraStack
 metadata:
   name: token-stack
@@ -94,7 +77,10 @@ metadata:
   resourceGroup: default
 spec:
   deletion: delete
+  bindings:
+    job:
+      - alias: stack
+        job: token-stack
   config:
-    job: token-stack
     variables:
       prefix: example

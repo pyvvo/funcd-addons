@@ -2,7 +2,7 @@
 # fence through the egress gateway under the EgressPolicy that names it (ADR-0352) and reaches the edge on the bridge
 # address (ADR-0353); the stack's Job reaches the S3 gateway on the bridge address, which internalAllow lists; the edge
 # takes a request's client from the X-Real-IP that a Tunnel's engine passes on, which Bunny sets to the visitor
-# (ADR-0354), and logs it; and the registries of both add-on images are listed.
+# (ADR-0354), and logs it; and the registries of the add-ons' images are listed.
 apiVersion: funcd.io/v1alpha1
 kind: FuncdConfig
 server:
@@ -42,6 +42,7 @@ addons:
     - ghcr.io
     - 127.0.0.1:5443
     - 127.0.0.1:5444
+    - 127.0.0.1:5445
 log:
   format: text
   level: info

@@ -86,6 +86,9 @@ jobs:
           nix develop --command just funcdctl
           nix develop --command just infra-push-check
 
+      - name: Check that the Addons pin their kinds' Functions
+        run: nix develop --command just kind-images-check
+
   # Each add-on under funcdctl dev on the runner's Docker, at the funcd that e2e/funcd.ref pins.
   e2e:
     runs-on: ubuntu-latest

@@ -1,6 +1,6 @@
 # The addon-rauthy lane's daemon config: the containerd runtime with file storage, ghcr.io listed in addons.registries
-# so that rauthy's published image may be registered (ADR-0332 Decision 6), and an ADR-0171 credential list, since only
-# an admin registers an Addon. The provisioning writes both token files (root, 0600) from the lane's tokens.
+# so that rauthy's published image may be registered (ADR-0332 Decision 6), beside the lane's registry, which serves the
+# settings Function's image (ADR-0358), and an ADR-0171 credential list, since only an admin registers an Addon. The provisioning writes both token files (root, 0600) from the lane's tokens.
 apiVersion: funcd.io/v1alpha1
 kind: FuncdConfig
 server:
@@ -22,6 +22,7 @@ runtime:
 addons:
   registries:
     - ghcr.io
+    - 127.0.0.1:5443
 log:
   format: text
   level: info

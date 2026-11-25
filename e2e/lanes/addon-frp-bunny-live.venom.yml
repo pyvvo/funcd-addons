@@ -112,7 +112,6 @@ testcases:
               -e "s#^imageRegistry: .*#imageRegistry: {{.bunnyregistry}}#" values/bunny.yaml > values/live.yaml
             funcdctl push infra/bunny {{.registry}}/frp-bunny-module:0.1.0 --entry main.tf
             funcdctl push hello/hello.mjs {{.registry}}/frp-bunny-hello:0.1.0
-            funcdctl push infrastack-reconciler.mjs {{.registry}}/infrastack-reconciler:0.1.0
             funcdctl app lock app -f values/live.yaml
             funcdctl push --template app {{.registry}}/frp-bunny:0.1.0
             echo PUSHED'

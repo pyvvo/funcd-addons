@@ -14,19 +14,3 @@ addons:
         - ${{ values.keys }}
     ingress:
       host: ${{ values.host }}
-    functions:
-      - kind: RauthyPasswordPolicy
-        ref: ${{ app.name + "-settings" }}
-functions:
-  - name: ${{ app.name + "-settings" }}
-    runtime: nodejs22
-    handler: reconcile
-    image: ${{ images.settings }}
-    ingress:
-      enabled: false
-    bindings:
-      addon:
-        - alias: idp
-          object: ${{ app.name + "-login" }}
-      secret:
-        - ${{ values.keys }}

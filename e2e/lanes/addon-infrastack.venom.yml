@@ -2,8 +2,9 @@
 # admin registers the add-on's Addon, which ships opentofu1, the OpenTofu runtime, and the Engineless kind InfraStack
 # (ADR-0344, ADR-0345). The add-on's plugin, funcdctl infra, pushes the example modules random-stack and token-stack
 # from the VM, running OpenTofu on Docker in the runtime's image, with a contract made from each module's variables
-# (ADR-0355). A developer applies the example random-stack, whose Job's image is the random-stack module, and whose
-# reconciler Function binds that Job (ADR-0349): a run whose variables break the contract is refused; the stack's run
+# (ADR-0355). A developer applies the example random-stack, whose Job's image is the random-stack module, and which binds
+# that Job for the Function that funcd creates from the Addon's image (ADR-0349, ADR-0358): a run whose variables break
+# the contract is refused; the stack's run
 # previews its plan (ADR-0348), waits for an approval, applies it with the state in a Bucket prefix through the S3
 # gateway, writes both outputs into the Secret the Job owns, which a Function reads at each call, and the stack turns
 # Ready (ADR-0356); deleted, it is held until its destroy run, approved too, succeeded (ADR-0345 Decision 6). Then the
@@ -22,7 +23,7 @@ vars:
   registry: oci-layout:///mnt/funcd-deps/registry
 
 testcases:
-  - name: the OpenTofu runtime's image that the lane built comes from the lane's registry, for the Addon and the plugin
+  - name: the OpenTofu runtime's image that the lane built, and the reconciler's image at the digest the Addon pins, come from the lane's registries
     steps:
       - type: exec
         script: |
@@ -39,6 +40,19 @@ testcases:
             curl -sf -o /dev/null https://127.0.0.1:5443/v2/
             echo "127.0.0.1:5443/funcd/opentofu@$(cat /opt/lane/opentofu.digest)" > /opt/lane/opentofu.image
             sed -i -E "s#ghcr.io/pyvvo/funcd-opentofu@sha256:[A-Za-z0-9-]+#$(cat /opt/lane/opentofu.image)#" /opt/lane/addon.yaml
+            systemctl stop lane-registry-kind 2>/dev/null || true
+            systemctl reset-failed lane-registry-kind 2>/dev/null || true
+            d=$(mktemp -d /opt/lane/kind.XXXXXX)
+            funcdctl push /opt/lane/infrastack-reconciler.mjs "oci-layout://$d/layout:infrastack-reconciler"
+            tar -C "$d/layout" -cf "$d/image.tar" .
+            systemd-run --unit lane-registry-kind /mnt/funcd-deps/laneregistry "$d/image.tar" pyvvo/funcd-infrastack-reconciler \
+              127.0.0.1:5444 "$d/registry.crt" "$d/digest"
+            for i in $(seq 60); do [ -s "$d/digest" ] && break; sleep 1; done
+            install -m 0644 "$d/registry.crt" /usr/local/share/ca-certificates/funcd-lane-registry-kind.crt
+            update-ca-certificates >/dev/null
+            curl -sf -o /dev/null https://127.0.0.1:5444/v2/
+            grep -q "ghcr.io/pyvvo/funcd-infrastack-reconciler@$(cat "$d/digest")" /opt/lane/addon.yaml && echo PINNED || echo "OTHER $(cat "$d/digest")"
+            sed -i "s#ghcr.io/pyvvo/funcd-infrastack-reconciler@#127.0.0.1:5444/pyvvo/funcd-infrastack-reconciler@#" /opt/lane/addon.yaml
             systemctl stop funcd-demo
             systemctl reset-failed funcd-demo 2>/dev/null || true
             systemd-run --unit funcd-demo -p KillMode=mixed -p TimeoutStopSec=45 /usr/local/bin/funcd --config /opt/lane/funcdconfig.yaml
@@ -48,6 +62,7 @@ testcases:
         assertions:
           - result.code ShouldEqual 0
           - result.systemout ShouldContainSubstring IMAGE=127.0.0.1:5443/funcd/opentofu@sha256
+          - result.systemout ShouldContainSubstring PINNED
 
   - name: the add-on's plugin runs in the VM on Docker and pushes random-stack and token-stack, each an index of a linux/amd64 and a linux/arm64 bundle
     steps:
@@ -87,7 +102,7 @@ testcases:
 
   # The stack's own document is applied once its Job holds the module's contract: a run started before that is checked
   # at its start, not at its creation (ADR-0347 Decision 3), so infra-variables-refused would see no 422.
-  - name: an admin registers the InfraStack Addon, a developer applies random-stack's Job, the reconciler and the reader, and the Job takes the plugin's contract
+  - name: an admin registers the InfraStack Addon, a developer applies random-stack's Job and the reader, and the Job takes the plugin's contract
     steps:
       - type: exec
         script: |
@@ -102,7 +117,6 @@ testcases:
           limactl shell --workdir / {{.vm}} sudo env FUNCD_SERVER=http://127.0.0.1:8080 FUNCD_TOKEN={{.devtoken}} bash -c '
             set -e
             sed -e "s#registry.example.com/random-stack:0.1.0#{{.registry}}:random-stack#" \
-              -e "s#registry.example.com/infrastack-reconciler:0.1.0#{{.registry}}:infrastack-reconciler#" \
               /opt/lane/random-stack.yaml > /opt/lane/random-stack.lane.yaml
             python3 -c "import sys,yaml;d=[x for x in yaml.safe_load_all(open(sys.argv[1])) if x];[yaml.safe_dump_all([x for x in d if (x[\"kind\"]==\"InfraStack\")==s],open(p,\"w\"),sort_keys=False) for s,p in ((False,sys.argv[2]),(True,sys.argv[3]))]" \
               /opt/lane/random-stack.lane.yaml /opt/lane/random-stack.objects.yaml /opt/lane/random-stack.stack.yaml
@@ -158,6 +172,14 @@ testcases:
           - result.systemout ShouldContainSubstring STATUS=422
           - result.systemout ShouldContainSubstring PATHS=[/variables/prefix,/variables/prefx]
           - result.systemout ShouldContainSubstring RUNS=0
+      - type: exec
+        script: |
+          limactl shell --workdir / {{.vm}} bash -lc '
+            export FUNCD_SERVER=http://127.0.0.1:8080 FUNCD_TOKEN={{.devtoken}}
+            funcdctl get function random-stack-infrastack -n default -o json | python3 -c "import sys,json;s=json.load(sys.stdin)[\"spec\"];j=s[\"bindings\"][\"job\"][0];print(s[\"image\"].split(\"@\")[0],s[\"runtime\"],s[\"handler\"],s[\"ingress\"][\"enabled\"],j[\"alias\"],j[\"job\"])"'
+        info: "the stack's Function → {{.result.systemout}} {{.result.systemerr}}"
+        assertions:
+          - result.systemout ShouldEqual "127.0.0.1:5444/pyvvo/funcd-infrastack-reconciler nodejs22 handle False stack random-stack"
       - type: exec
         script: |
           limactl shell --workdir / {{.vm}} bash -lc '
@@ -379,12 +401,14 @@ testcases:
         script: |
           limactl shell --workdir / {{.vm}} bash -lc '
             export FUNCD_SERVER=http://127.0.0.1:8080 FUNCD_TOKEN={{.devtoken}}
-            funcdctl get InfraStack random-stack -n default >/dev/null 2>&1 || echo GONE'
+            funcdctl get InfraStack random-stack -n default >/dev/null 2>&1 || echo GONE
+            funcdctl get function random-stack-infrastack -n default >/dev/null 2>&1 || echo FUNCTION_GONE'
         retry: 90
         delay: 2
         assertions:
           - result.code ShouldEqual 0
           - result.systemout ShouldContainSubstring GONE
+          - result.systemout ShouldContainSubstring FUNCTION_GONE
 
   # token-stack's runs are read from the Job: a run that ends calls the reconciler at once, but the stack shows a run
   # awaiting approval only at its next resync (ADR-0345 Decision 4).
@@ -395,7 +419,6 @@ testcases:
           limactl shell --workdir / {{.vm}} sudo env FUNCD_SERVER=http://127.0.0.1:8080 FUNCD_TOKEN={{.devtoken}} bash -c '
             set -e
             sed -e "s#registry.example.com/token-stack:0.1.0#{{.registry}}:token-stack#" \
-              -e "s#registry.example.com/infrastack-reconciler:0.1.0#{{.registry}}:infrastack-reconciler#" \
               /opt/lane/token-stack.yaml > /opt/lane/token-stack.lane.yaml
             python3 -c "import sys,yaml;d=[x for x in yaml.safe_load_all(open(sys.argv[1])) if x];[yaml.safe_dump_all([x for x in d if (x[\"kind\"]==\"InfraStack\")==s],open(p,\"w\"),sort_keys=False) for s,p in ((False,sys.argv[2]),(True,sys.argv[3]))]" \
               /opt/lane/token-stack.lane.yaml /opt/lane/token-stack.objects.yaml /opt/lane/token-stack.stack.yaml
@@ -522,14 +545,14 @@ testcases:
         script: |
           limactl shell --workdir / {{.vm}} sudo bash -c '
             export FUNCD_SERVER=http://127.0.0.1:8080
-            for o in function/infrastack-reconciler function/random-stack-reader job/random-stack job/token-stack \
+            for o in function/random-stack-reader job/random-stack job/token-stack \
               secret/random-stack-outputs secret/token-stack-token configmap/random-stack-infrastack configmap/token-stack-infrastack; do
               FUNCD_TOKEN={{.devtoken}} funcdctl delete ${o%%/*} ${o#*/} -n default || true
             done
             FUNCD_TOKEN={{.admintoken}} funcdctl delete addon infrastack
-            systemctl stop lane-registry 2>/dev/null || true
+            systemctl stop lane-registry lane-registry-kind 2>/dev/null || true
             if [ -f /usr/local/share/ca-certificates/funcd-lane-registry.crt ]; then
-              rm -f /usr/local/share/ca-certificates/funcd-lane-registry.crt
+              rm -f /usr/local/share/ca-certificates/funcd-lane-registry.crt /usr/local/share/ca-certificates/funcd-lane-registry-kind.crt
               update-ca-certificates --fresh >/dev/null
             fi
             echo CLEANED'

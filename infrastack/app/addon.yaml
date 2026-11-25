@@ -11,7 +11,8 @@ spec:
       image: ghcr.io/pyvvo/funcd-opentofu@sha256:ea7f035a7deb67fd5b301b70f95af069369fc84994d714fbc2e3bad9a1771b91
       workloads:
         - Job
-    # The InfraStack kind runs no engine (funcd ADR-0345): the Function of reconciler/ drives each stack's Job.
+    # The InfraStack kind runs no engine (funcd ADR-0345): the Function of reconciler/ drives the Job that a stack binds as
+    # stack. The release workflow publishes it as this image, and funcd creates one for each stack (funcd ADR-0358).
     - name: infrastack
       workloads:
         - Engineless
@@ -19,16 +20,4 @@ spec:
         kind: InfraStack
         resync: 1m
         function:
-          ref: infrastack-reconciler
-        config:
-          type: object
-          additionalProperties: false
-          properties:
-            job:
-              type: string
-            variables: {}
-            # A cron of funcd ADR-0211's grammar, in UTC: when the reconciler checks an applied stack for drift.
-            drift:
-              type: string
-          required:
-            - job
+          image: ghcr.io/pyvvo/funcd-infrastack-reconciler@sha256:62e175360e13d22297df421b228ddb53d676f52c35c303795723bf7954f091b5

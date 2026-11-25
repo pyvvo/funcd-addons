@@ -23,9 +23,22 @@ var unpublished = regexp.MustCompile(`^ghcr\.io/pyvvo/[a-z0-9-]+@sha256:TODO-[a-
 // The funcd kinds an add-on's examples use beside the kinds the Addons register.
 var funcdKinds = []string{"Addon", "Secret", "Route", "OIDCProvider", "Function", "Namespace", "BackupSchedule", "Backup", "Restore", "Bucket", "Job", "ConfigMap", "EgressPolicy"}
 
-// TestManifests decodes every add-on's YAML: each document is block style, an Addon pins each runtime's image by
-// digest, but for an Engineless entry, which runs none, and names the kind its Engine or Engineless entry runs (funcd
-// ADR-0344, ADR-0345), and every other document is of a funcd kind or of a kind an Addon here registers.
+// function is the Function of a kind: an image, by its digest, or one of the namespace (funcd ADR-0358).
+type function struct {
+	Image string `yaml:"image"`
+	Ref   string `yaml:"ref"`
+}
+
+func (f function) check(t *testing.T, file, kind string) {
+	t.Helper()
+	if f.Image != "" && !digest.MatchString(f.Image) {
+		t.Errorf("%s: the image %q of the kind %s is not pinned by digest", file, f.Image, kind)
+	}
+}
+
+// TestManifests decodes every add-on's YAML: each document is block style, an Addon pins each runtime's image and each
+// kind's by digest, but for an Engineless entry, which runs none, and names the kind its Engine or Engineless entry runs
+// (funcd ADR-0344, ADR-0345), and every other document is of a funcd kind or of a kind an Addon here registers.
 func TestManifests(t *testing.T) {
 	t.Parallel()
 	type doc struct {
@@ -77,9 +90,11 @@ func TestManifests(t *testing.T) {
 					Image      string   `yaml:"image"`
 					Workloads  []string `yaml:"workloads"`
 					Attributes struct {
-						Kind     string `yaml:"kind"`
+						Kind     string   `yaml:"kind"`
+						Function function `yaml:"function"`
 						Settings []struct {
-							Kind string `yaml:"kind"`
+							Kind     string   `yaml:"kind"`
+							Function function `yaml:"function"`
 						} `yaml:"settings"`
 					} `yaml:"attributes"`
 				} `yaml:"runtimes"`
@@ -107,8 +122,10 @@ func TestManifests(t *testing.T) {
 				}
 				named = rt.Attributes.Kind != ""
 				kinds[rt.Attributes.Kind] = true
+				rt.Attributes.Function.check(t, d.file, rt.Attributes.Kind)
 				for _, st := range rt.Attributes.Settings {
 					kinds[st.Kind] = true
+					st.Function.check(t, d.file, st.Kind)
 				}
 			}
 			if !named {

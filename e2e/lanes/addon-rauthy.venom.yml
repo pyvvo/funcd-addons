@@ -12,12 +12,14 @@
 #      while the engine's own address, which funcd reaches, serves it;
 #   5. the engine's netns holds the fence: no outbound endpoint, and an input chain that admits only loopback and funcd's
 #      bridge address;
-# and the FEAT-0019 cases: rauthy's settings kind RauthyPasswordPolicy, whose Function puts login's policy into rauthy
-# through its binding, puts it back after a drift at rauthy's own API, refuses a second one, sends it again after funcd
-# restarts and sets rauthy's default back once it is deleted (ADR-0340, ADR-0341, ADR-0338); an admin's deploy of
-# rauthy's App template, whose IdentityProvider's policy goes to the App's own Function (ADR-0337); and a change of the
-# Addon that replaces no engine, while the App's next revision moves its part and a rollback takes it back (ADR-0339).
-# The staged Addon's policy resync is 5 s, so the drift check waits seconds; probe.py reads the policy rauthy enforces.
+# and the FEAT-0019 cases: rauthy's settings kind RauthyPasswordPolicy, whose Function funcd creates from the image that
+# the Addon names once a policy needs it, puts login's policy into rauthy through its binding, puts it back after a drift
+# at rauthy's own API, is refused a property its contract lacks and a second policy, gets the policy again after funcd
+# restarts, and sets rauthy's default back once it is deleted, when it goes (ADR-0340, ADR-0341, ADR-0338, ADR-0358); an
+# admin's deploy of rauthy's App template, whose IdentityProvider gets a Function of its own (ADR-0337); and a change of
+# the Addon that replaces no engine, while the App's next revision moves its part and a rollback takes it back
+# (ADR-0339). The staged Addon's policy resync is 5 s, so the drift check waits seconds; probe.py reads the policy rauthy
+# enforces.
 name: addon-rauthy — an Addon built outside funcd, registered and run on containerd (ADR-0332, containerd lane)
 
 vars:
@@ -28,6 +30,34 @@ vars:
   ctr: "/var/lib/funcd/bin/ctr --address /var/lib/funcd/data/containerd/containerd.sock -n funcd-default"
 
 testcases:
+  - name: the lane's registry serves the settings Function's image, at the digest that the Addon pins
+    steps:
+      - type: exec
+        script: |
+          limactl shell --workdir / {{.vm}} sudo bash -c '
+            set -e
+            systemctl stop lane-registry 2>/dev/null || true
+            systemctl reset-failed lane-registry 2>/dev/null || true
+            d=$(mktemp -d /opt/lane/kind.XXXXXX)
+            funcdctl push /opt/lane/settings/rauthy-settings.mjs "oci-layout://$d/layout:rauthy-settings"
+            tar -C "$d/layout" -cf "$d/image.tar" .
+            systemd-run --unit lane-registry /mnt/funcd-deps/laneregistry "$d/image.tar" pyvvo/funcd-rauthy-settings \
+              127.0.0.1:5443 "$d/registry.crt" "$d/digest"
+            for i in $(seq 60); do [ -s "$d/digest" ] && break; sleep 1; done
+            install -m 0644 "$d/registry.crt" /usr/local/share/ca-certificates/funcd-lane-registry.crt
+            update-ca-certificates >/dev/null
+            curl -sf -o /dev/null https://127.0.0.1:5443/v2/
+            grep -q "ghcr.io/pyvvo/funcd-rauthy-settings@$(cat "$d/digest")" /opt/lane/app/addon.yaml && echo PINNED || echo "OTHER $(cat "$d/digest")"
+            sed -i "s#ghcr.io/pyvvo/funcd-rauthy-settings@#127.0.0.1:5443/pyvvo/funcd-rauthy-settings@#" /opt/lane/app/addon.yaml
+            systemctl stop funcd-demo
+            systemctl reset-failed funcd-demo 2>/dev/null || true
+            systemd-run --unit funcd-demo -p KillMode=mixed -p TimeoutStopSec=45 /usr/local/bin/funcd --config /opt/lane/funcdconfig.yaml
+            curl -s --retry-connrefused --retry 30 --retry-delay 1 -o /dev/null http://127.0.0.1:8080/healthz'
+        info: "image → {{.result.systemout}} {{.result.systemerr}}"
+        assertions:
+          - result.code ShouldEqual 0
+          - result.systemout ShouldContainSubstring PINNED
+
   - name: a developer's Addon is refused, and the admin's registers IdentityProvider
     steps:
       - type: exec
@@ -46,6 +76,15 @@ testcases:
         assertions:
           - result.code ShouldEqual 0
           - result.systemout ShouldContainSubstring "applied Addon/rauthy"
+      - type: exec
+        script: &addon-ready |
+          limactl shell {{.vm}} -- sudo env FUNCD_SERVER=http://127.0.0.1:8080 FUNCD_TOKEN={{.admintoken}} \
+            sh -c 'funcdctl get addons rauthy -o json | python3 -c "import sys,json;c=[c for c in json.load(sys.stdin)[\"status\"].get(\"conditions\",[]) if c[\"type\"]==\"Ready\"][0];print(c[\"status\"],c.get(\"reason\",\"\"),c.get(\"message\",\"\"))"'
+        retry: 30
+        delay: 1
+        info: "the Addon's Ready → {{.result.systemout}} {{.result.systemerr}}"
+        assertions:
+          - result.systemout ShouldStartWith True
 
   - name: login turns Ready on containerd and lists under its plural
     steps:
@@ -165,22 +204,19 @@ testcases:
           - result.systemout ShouldContainSubstring "policy drop"
           - result.systemout ShouldContainSubstring "ip saddr 10.63.0.1 accept"
 
-  # ADR-0340 and ADR-0341: rauthy's settings kind RauthyPasswordPolicy, which its Function rauthy-settings applies
-  # through its binding of login (ADR-0338). The probe reads the shortest password rauthy takes now.
-  - name: the settings Function puts login's password policy into rauthy
+  # ADR-0340, ADR-0341 and ADR-0358: rauthy's settings kind RauthyPasswordPolicy, which the Function that funcd creates
+  # from the Addon's image applies through its binding of login (ADR-0338). The probe reads the shortest password rauthy
+  # takes now.
+  - name: the Function that funcd creates from the Addon's image puts login's password policy into rauthy
     steps:
       - type: exec
         script: |
-          limactl shell --workdir / {{.vm}} -- sudo funcdctl push /opt/lane/settings/rauthy-settings.mjs \
-            oci-layout:///mnt/funcd-deps/registry/rauthy-settings:0.2.0
-        assertions:
-          - result.code ShouldEqual 0
-      - type: exec
-        script: |
           limactl shell {{.vm}} -- sudo env FUNCD_SERVER=http://127.0.0.1:8080 FUNCD_TOKEN={{.devtoken}} \
-            sh -c 'funcdctl apply -f /opt/lane/settings-function.yaml && funcdctl apply -f /opt/lane/policy.yaml'
+            sh -c 'funcdctl get function login-rauthypasswordpolicy -n default >/dev/null 2>&1 || echo NO_FUNCTION; funcdctl apply -f /opt/lane/policy.yaml'
+        info: "apply → {{.result.systemout}} {{.result.systemerr}}"
         assertions:
           - result.code ShouldEqual 0
+          - result.systemout ShouldContainSubstring NO_FUNCTION
           - result.systemout ShouldContainSubstring "applied RauthyPasswordPolicy/strict"
       - type: exec
         script: |
@@ -199,6 +235,33 @@ testcases:
         info: "probe → {{.result.systemout}}"
         assertions:
           - result.systemout ShouldStartWith "MIN=16 "
+      - type: exec
+        script: |
+          limactl shell {{.vm}} -- sudo env FUNCD_SERVER=http://127.0.0.1:8080 FUNCD_TOKEN={{.devtoken}} \
+            sh -c 'funcdctl get function login-rauthypasswordpolicy -n default -o json | python3 -c "import sys,json;s=json.load(sys.stdin)[\"spec\"];b=s[\"bindings\"];print(s[\"image\"].split(\"@\")[0],s[\"runtime\"],s[\"handler\"],s[\"ingress\"][\"enabled\"],b[\"addon\"][0][\"alias\"],b[\"addon\"][0][\"object\"],b[\"secret\"][0])"'
+        info: "the Function → {{.result.systemout}} {{.result.systemerr}}"
+        assertions:
+          - result.systemout ShouldEqual "127.0.0.1:5443/pyvvo/funcd-rauthy-settings nodejs22 handle False self login rauthy-keys"
+      - type: http
+        method: POST
+        url: "{{.dp}}/function/login-rauthypasswordpolicy"
+        headers:
+          Content-Type: application/json
+        body: "{}"
+        info: "its address → {{.result.statuscode}}"
+        assertions:
+          - result.statuscode ShouldEqual 404
+
+  - name: a property that the Function's contract lacks is refused
+    steps:
+      - type: exec
+        script: |
+          limactl shell {{.vm}} -- sudo env FUNCD_SERVER=http://127.0.0.1:8080 FUNCD_TOKEN={{.devtoken}} \
+            sh -c 'sed "s/    lengthMax: 128/    maxAge: 3/" /opt/lane/policy.yaml | funcdctl apply -f - 2>&1'
+        info: "apply → {{.result.systemout}}"
+        assertions:
+          - result.code ShouldNotEqual 0
+          - result.systemout ShouldContainSubstring maxAge
 
   - name: a policy changed at rauthy's own API is put back at the next resync
     steps:
@@ -251,7 +314,7 @@ testcases:
         assertions:
           - result.systemout ShouldNotEqual 0
 
-  - name: deleting the policy puts rauthy's default back
+  - name: deleting the policy puts rauthy's default back, and its Function goes
     steps:
       - type: exec
         script: |
@@ -268,16 +331,22 @@ testcases:
         info: "probe → {{.result.systemout}}"
         assertions:
           - result.systemout ShouldStartWith "MIN=14 "
+      - type: exec
+        script: |
+          limactl shell {{.vm}} -- sudo env FUNCD_SERVER=http://127.0.0.1:8080 FUNCD_TOKEN={{.devtoken}} \
+            sh -c 'funcdctl get function login-rauthypasswordpolicy -n default >/dev/null 2>&1 || echo GONE'
+        retry: 30
+        delay: 2
+        assertions:
+          - result.systemout ShouldContainSubstring GONE
 
   # ADR-0337: rauthy's App template carries its Addon; an admin's deploy registers or updates the Addon, then the App,
-  # whose IdentityProvider names the App's own settings Function.
+  # whose IdentityProvider gets a Function of its own once a policy names it.
   - name: an admin deploys rauthy's App template, and its IdentityProvider's policy goes to its own Function
     steps:
       - type: exec
         script: |
-          limactl shell --workdir / {{.vm}} -- sudo bash -c '
-            funcdctl app lock /opt/lane/app -f /opt/lane/values.yaml > /dev/null
-            funcdctl push --template /opt/lane/app oci-layout:///mnt/funcd-deps/registry/rauthy:0.2.0'
+          limactl shell --workdir / {{.vm}} -- sudo funcdctl push --template /opt/lane/app oci-layout:///mnt/funcd-deps/registry/rauthy:0.2.0
         assertions:
           - result.code ShouldEqual 0
           - result.systemout ShouldContainSubstring "rauthy:0.2.0@sha256:"
@@ -309,8 +378,8 @@ testcases:
       - type: exec
         script: |
           limactl shell --workdir / {{.vm}} -- sudo bash -c '
-            journalctl -u funcd-demo --no-pager | grep "msg=\"settings call ended\"" | grep "target=web-auth-login" | grep -c "function=web-auth-settings"'
-        info: "calls of web-auth-settings → {{.result.systemout}}"
+            journalctl -u funcd-demo --no-pager | grep "msg=\"settings call ended\"" | grep "target=web-auth-login" | grep -c "function=web-auth-login-rauthypasswordpolicy"'
+        info: "calls of web-auth-login's Function → {{.result.systemout}}"
         assertions:
           - result.systemout ShouldNotEqual 0
 

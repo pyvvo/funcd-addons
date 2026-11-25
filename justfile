@@ -9,6 +9,7 @@ ci:
     go vet ./...
     go test -race ./...
     just test-infrastack
+    node --test 'rauthy/**/*.test.mjs'
 
 # test the InfraStack add-on's OpenTofu handler, with a stand-in for OpenTofu, its funcdctl plugin, with a stand-in for
 # the container engine and funcdctl, and its reconciler Function
@@ -33,6 +34,14 @@ opentofu-image-check image="funcd-addons/opentofu:dev":
 # build funcdctl at e2e/funcd.ref into work/bin
 funcdctl:
     GOBIN="$PWD/work/bin" CGO_ENABLED=0 go install -tags dev "github.com/pyvvo/funcd/cmd/funcdctl@$(cat e2e/funcd.ref)"
+
+# write the digest of each kind's Function into the Addon that names its image (funcd ADR-0358)
+kind-images funcdctl="work/bin/funcdctl":
+    python3 e2e/kind_images.py "$(cd "$(dirname {{funcdctl}})" && pwd)/$(basename {{funcdctl}})" --write
+
+# fail when an Addon pins another digest than its kind's Function has
+kind-images-check funcdctl="work/bin/funcdctl":
+    python3 e2e/kind_images.py "$(cd "$(dirname {{funcdctl}})" && pwd)/$(basename {{funcdctl}})"
 
 # push a module with a local child through funcdctl-infra, with the image's OpenTofu, into an OCI layout (funcd ADR-0355)
 infra-push-check image="funcd-addons/opentofu:dev" funcdctl="work/bin/funcdctl":

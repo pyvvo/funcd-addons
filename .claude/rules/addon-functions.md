@@ -14,7 +14,8 @@ otherwise.
 1. **Private, when only funcd calls it.** A Function answers at its own address, `/function/<name>`, unless its spec, or
    its namespace's `defaultExposure: explicit`, turns that address off (funcd ADR-0110, ADR-0241). One that funcd alone
    calls turns it off in its spec: an Addon's `function.ref`, an object's `spec.functions`, an App hook, a Sensor's
-   target. funcd's own calls need no address. One that a person or a page calls keeps its address, and names its stance
+   target. One that funcd creates from an Addon's `function.image` has none (funcd ADR-0358). funcd's own calls need no
+   address. One that a person or a page calls keeps its address, and names its stance
    in `ingress.auth`.
 
    ```yaml
@@ -32,7 +33,7 @@ otherwise.
    |---|---|
    | Run again later | the kind's `resync`; an EventSource timer and a Sensor for a schedule (funcd ADR-0108, ADR-0109) |
    | Try again | a call that fails is sent again after a backoff, and `ok: false` at the resync (funcd ADR-0341) |
-   | Check an object's fields | the kind's schema and constraints (funcd ADR-0340) |
+   | Check an object's fields | the contract of the kind's Function (funcd ADR-0358), and the kind's constraints (funcd ADR-0340) |
    | Check a call's data | the Function's contract (funcd ADR-0303) |
    | Learn that a run ended | the cause `run`, then `ctx.job.get` (funcd ADR-0345, ADR-0349) |
    | Reach an engine, a Job or a Secret | its binding, which Cedar governs (funcd ADR-0338, ADR-0349, ADR-0321) |
@@ -40,5 +41,10 @@ otherwise.
 3. **A kind's handler keeps funcd's terms**, in the guide's
    [The kind's Function](https://github.com/pyvvo/funcd/blob/main/docs/guide/develop/services/addons/build.md#the-kinds-function):
    it applies the whole list, the same way each time it is sent, answers each object by its name, and takes a cause it
-   does not know. A settings kind's puts the engine's default back for an empty list. An engineless kind's destroys an
-   object sent with `deleting: true`, and forgets one that left the list.
+   does not know. A settings kind's puts the engine's default back for an empty list, and throws when it cannot, so that
+   funcd calls it again before it removes it. An engineless kind's destroys an object sent with `deleting: true`, and
+   forgets one that left the list.
+4. **A kind ships its Function as an image.** Its contract describes funcd's call, and what it says of one object's
+   `config` is the kind's schema, so an Addon has none for it (funcd ADR-0358). `just kind-images` writes the image's
+   digest into the Addon, and a release publishes it. A kind whose Function binds a KVStore, a Bucket or a database of
+   the namespace names a `ref` instead.

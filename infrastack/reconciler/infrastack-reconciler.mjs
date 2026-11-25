@@ -1,6 +1,5 @@
-// The Function of the InfraStack kind (funcd ADR-0345): funcd sends it every stack of the namespace that it reconciles,
-// and it drives each stack's Job through its binding whose alias the stack's config.job names (funcd ADR-0349). A stack
-// gets one run per generation, which applies it, and once it is deleting with deletion: delete, one run that destroys
+// The Function of the InfraStack kind (funcd ADR-0345, ADR-0358): funcd creates it from its image for each stack and sends
+// it that stack, and it drives the Job that the stack binds as stack (funcd ADR-0349). A stack gets one run per generation, which applies it, and once it is deleting with deletion: delete, one run that destroys
 // it; each run previews its plan and waits for a person's approval unless its Job says approval.bypass (funcd
 // ADR-0348). A stack reports its run: Ready once the run of its generation succeeded, and a deleting stack goes once its
 // destroy succeeded. A run's name comes from the stack's uid and generation, so a call sent again starts no new run,
@@ -10,6 +9,8 @@
 // at its latest due time since its apply ended, a run with action plan (funcd ADR-0355 Decision 5), named after that
 // time, one at a time; a finding that would change anything is the stack's Drifted.
 
+// The alias under which a stack binds its Job.
+const JOB = 'stack';
 const NAME_MAX = 63;
 const MINUTE = 60_000;
 // How far back a due time is looked for: an accepted cron fires within four years, 29 February's included.
@@ -77,18 +78,18 @@ const drive = async (ctx, stack, action) => {
   const name = runName(stack, action);
   const input = { action, ...variablesOf(stack) };
   try {
-    await ctx.job.start(stack.config.job, input, name);
-    return { run: await ctx.job.get(stack.config.job, name) };
+    await ctx.job.start(JOB, input, name);
+    return { run: await ctx.job.get(JOB, name) };
   } catch (err) {
     const reason = START_REFUSED[err?.status] ?? 'RunStartFailed';
-    return { failed: { reason, message: `run ${name} of the Job bound as ${stack.config.job}: ${err?.message ?? err}` } };
+    return { failed: { reason, message: `run ${name} of the Job bound as ${JOB}: ${err?.message ?? err}` } };
   }
 };
 
 // applyRun reads the apply run of the stack's generation, or null when it was never started.
 const applyRun = async (ctx, stack) => {
   try {
-    return await ctx.job.get(stack.config.job, runName(stack, 'apply'));
+    return await ctx.job.get(JOB, runName(stack, 'apply'));
   } catch (err) {
     if (err?.status === 404) return null;
     throw err;
@@ -188,9 +189,9 @@ export const driftRunName = (stack, due) => {
   return `${base}-${tag}`;
 };
 
-const getRun = async (ctx, stack, name) => {
+const getRun = async (ctx, name) => {
   try {
-    return await ctx.job.get(stack.config.job, name);
+    return await ctx.job.get(JOB, name);
   } catch (err) {
     if (err?.status === 404) return null;
     throw err;
@@ -227,7 +228,7 @@ const latestCheck = async (ctx, stack, cron, from, applied) => {
   for (let left = LOOKBACK; left > 0; left--) {
     at = latestDue(cron, new Date(at.getTime() - MINUTE));
     if (!at || at < applied) return null;
-    const run = await getRun(ctx, stack, driftRunName(stack, at));
+    const run = await getRun(ctx, driftRunName(stack, at));
     if (run) return { run, at };
   }
   return null;
@@ -253,7 +254,7 @@ const drift = async (ctx, stack, apply, now) => {
     return last && ENDED.has(last.run.phase) ? finding(last.run) : { ok: true };
   };
   try {
-    const run = await getRun(ctx, stack, name);
+    const run = await getRun(ctx, name);
     if (run) {
       if (ENDED.has(run.phase)) return finding(run);
       return run.phase === 'AwaitingApproval' ? awaiting(run) : lastFound(due);
@@ -262,8 +263,8 @@ const drift = async (ctx, stack, apply, now) => {
     if (last && !ENDED.has(last.run.phase)) {
       return last.run.phase === 'AwaitingApproval' ? awaiting(last.run) : lastFound(last.at);
     }
-    await ctx.job.start(stack.config.job, { action: 'plan', ...variablesOf(stack) }, name);
-    const started = await ctx.job.get(stack.config.job, name);
+    await ctx.job.start(JOB, { action: 'plan', ...variablesOf(stack) }, name);
+    const started = await ctx.job.get(JOB, name);
     if (ENDED.has(started.phase)) return finding(started);
     if (started.phase === 'AwaitingApproval') return awaiting(started);
     return last ? finding(last.run) : { ok: true };
@@ -272,19 +273,16 @@ const drift = async (ctx, stack, apply, now) => {
       return {
         ok: false,
         reason: 'DriftCheckRefused',
-        message: `drift check ${name} of the Job bound as ${stack.config.job}: ${err?.message ?? err}; a module pushed ` +
+        message: `drift check ${name} of the Job bound as ${JOB}: ${err?.message ?? err}; a module pushed ` +
           'before funcd ADR-0355 takes no action plan: push it again with funcdctl infra push',
       };
     }
     const reason = START_REFUSED[err?.status] ?? 'RunStartFailed';
-    return { ok: false, reason, message: `drift check ${name} of the Job bound as ${stack.config.job}: ${err?.message ?? err}` };
+    return { ok: false, reason, message: `drift check ${name} of the Job bound as ${JOB}: ${err?.message ?? err}` };
   }
 };
 
 const reconcileOne = async (ctx, stack, now) => {
-  if (!stack.config?.job) {
-    return { ok: false, reason: 'ConfigInvalid', message: 'config.job names no Job binding' };
-  }
   if (stack.deleting) {
     let before;
     try {
@@ -314,4 +312,4 @@ export const reconcileAt = async (ctx, event, now) => {
   return { results };
 };
 
-export const reconcile = (ctx, event) => reconcileAt(ctx, event, new Date());
+export const handle = (ctx, event) => reconcileAt(ctx, event, new Date());

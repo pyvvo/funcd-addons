@@ -1,7 +1,8 @@
-// The Function of rauthy's settings kind RauthyPasswordPolicy (funcd ADR-0341): funcd sends it every policy that names
-// one IdentityProvider, and it puts that policy into rauthy through its binding of the IdentityProvider (funcd
-// ADR-0338), or rauthy's default when the list is empty. rauthy holds one policy per instance, so the kind allows one
-// per IdentityProvider. It signs in with the API key settings, which funcdctl rauthy keys has rauthy create.
+// The Function of rauthy's settings kind RauthyPasswordPolicy (funcd ADR-0341, ADR-0358): funcd creates it from its image
+// for each IdentityProvider that a policy names and sends it that policy, and it puts the policy into rauthy through its
+// binding of the IdentityProvider (funcd ADR-0338), or rauthy's default when the list is empty. It throws when it cannot
+// put the default back, so funcd calls it again instead of removing it. rauthy holds one policy per instance, so the kind
+// allows one per IdentityProvider. It signs in with the API key settings, which funcdctl rauthy keys has rauthy create.
 
 const DEFAULT = {
   length_min: 14,
@@ -25,26 +26,26 @@ const request = (c) => ({
   not_recently_used: c.notRecentlyUsed ?? null,
 });
 
-const all = (objects, result) => ({ results: objects.map((o) => ({ name: o.name, ...result })) });
-
-export const reconcile = async (ctx, event) => {
-  const call = event.data;
-  const objects = call.objects ?? [];
+// put puts policy into the rauthy bound as alias, and answers why it could not, or null.
+const put = async (ctx, alias, policy) => {
   const secret = await ctx.secret.get('BOOTSTRAP_API_KEY_SECRET');
-  const policy = objects.length > 0 ? request(objects[0].config) : DEFAULT;
   let res;
   try {
-    res = await ctx.addon.fetch(call.target.alias, '/auth/v1/password_policy', {
+    res = await ctx.addon.fetch(alias, '/auth/v1/password_policy', {
       method: 'PUT',
       headers: { Authorization: `API-Key settings$${secret}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(policy),
     });
   } catch (err) {
-    return all(objects, { ok: false, reason: 'EngineUnreachable', message: String(err?.message ?? err) });
+    return { reason: 'EngineUnreachable', message: String(err?.message ?? err) };
   }
-  if (!res.ok) {
-    const text = (await res.text()).slice(0, 300);
-    return all(objects, { ok: false, reason: 'EngineRefused', message: `rauthy answered ${res.status}: ${text}` });
-  }
-  return all(objects, { ok: true });
+  if (res.ok) return null;
+  return { reason: 'EngineRefused', message: `rauthy answered ${res.status}: ${(await res.text()).slice(0, 300)}` };
+};
+
+export const handle = async (ctx, event) => {
+  const { target, objects } = event.data;
+  const failed = await put(ctx, target.alias, objects.length > 0 ? request(objects[0].config) : DEFAULT);
+  if (failed && objects.length === 0) throw new Error(`rauthy's default password policy is not back: ${failed.message}`);
+  return { results: objects.map((o) => ({ name: o.name, ok: !failed, ...failed })) };
 };

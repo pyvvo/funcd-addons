@@ -398,7 +398,7 @@ class PluginTest(unittest.TestCase):
         def b64(text):
             return base64.b64encode(text.encode()).decode()
         self.objects(**{
-            "infrastack/edge": {"spec": {"config": {"job": "edge"}}},
+            "infrastack/edge": {"spec": {"bindings": {"job": [{"alias": "stack", "job": "edge"}]}}},
             "job/edge": {"spec": {"bindings": {"config": ["edge-a", "edge-b"]}},
                          "status": {"contract": {"output": {"properties": {"outputs": {"properties": {"host": {}}}}}}}},
             "configmap/edge-a": {"spec": {"data": {"INFRASTACK_OUTPUTS_SECRET": "first"}}},
@@ -418,11 +418,16 @@ class PluginTest(unittest.TestCase):
                          {"outputs": {"host": "a.b-cdn.net"}, "sensitive": ["FRP_TOKEN", "extra"]})
         self.assertNotIn("s3cret", said.call_args.args[0])
 
+    def test_outputs_needs_the_job_bound_as_stack(self):
+        self.objects(**{"infrastack/edge": {"spec": {"bindings": {"job": [{"alias": "other", "job": "edge"}]}}}})
+        with self.assertRaisesRegex(infra.InfraError, "the InfraStack default/edge binds no Job as stack"):
+            infra.outputs("edge", "default")
+
     def test_a_refused_read_ends_outputs_with_funcdctls_error(self):
-        self.objects(**{"infrastack/edge": {"spec": {"config": {"job": "edge"}}}})
+        self.objects(**{"infrastack/edge": {"spec": {"bindings": {"job": [{"alias": "stack", "job": "edge"}]}}}})
         with self.assertRaisesRegex(infra.InfraError, "store.Get: job/edge not found"):
             infra.outputs("edge", "default")
-        self.objects(**{"infrastack/edge": {"spec": {"config": {"job": "edge"}}}, "job/edge": {"spec": {}}})
+        self.objects(**{"infrastack/edge": {"spec": {"bindings": {"job": [{"alias": "stack", "job": "edge"}]}}}, "job/edge": {"spec": {}}})
         with self.assertRaisesRegex(infra.InfraError, "binds no ConfigMap that names INFRASTACK_OUTPUTS_SECRET"):
             infra.outputs("edge", "default")
 

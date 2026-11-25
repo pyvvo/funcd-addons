@@ -52,6 +52,7 @@ for args in json.loads(sys.argv[1]):
 print(json.dumps(outs))
 """
 OUTPUTS_SECRET = "INFRASTACK_OUTPUTS_SECRET"
+STACK_JOB = "stack"  # the alias under which an InfraStack binds its Job (funcd ADR-0358)
 SENSITIVE = "(sensitive)"
 # A plan run's finding (funcd ADR-0355 Decision 5).
 PLAN = {
@@ -327,9 +328,10 @@ def outputs(stack: str, namespace: str) -> dict:
     """Each key of the stack's outputs Secret, with its value when the Job's contract names it among its plain outputs,
     else (sensitive) (funcd ADR-0356 Decision 8)."""
     st = get("infrastack", stack, namespace)
-    job_name = ((st.get("spec") or {}).get("config") or {}).get("job")
+    bound = ((st.get("spec") or {}).get("bindings") or {}).get("job") or []
+    job_name = next((b["job"] for b in bound if b.get("alias") == STACK_JOB), None)
     if not job_name:
-        raise InfraError(f"the InfraStack {namespace}/{stack} names no config.job")
+        raise InfraError(f"the InfraStack {namespace}/{stack} binds no Job as {STACK_JOB}")
     job = get("job", job_name, namespace)
     output = ((job.get("status") or {}).get("contract") or {}).get("output") or {}
     plain = set((((output.get("properties") or {}).get("outputs") or {}).get("properties") or {}))

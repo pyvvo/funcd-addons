@@ -1,5 +1,5 @@
-# A password policy for the IdentityProvider of the lane's App web-auth, which its own Function web-auth-settings
-# applies (ADR-0341 Decision 3).
+# A password policy for the IdentityProvider of the lane's App web-auth, which brings that IdentityProvider's own
+# Function (ADR-0358 Decision 2).
 apiVersion: funcd.io/v1alpha1
 kind: RauthyPasswordPolicy
 metadata:
