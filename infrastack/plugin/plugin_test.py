@@ -1,16 +1,19 @@
 """funcdctl-infra, with a fake container engine and a fake funcdctl that record their argv (funcd ADR-0355 Implementation
 plan step 1). The engine stands in for OpenTofu in the add-on's image: it answers `tofu show -json -module` from the
-test's configurations, writes a lock file, and mirrors one provider package per platform."""
+test's configurations, writes a lock file, and mirrors one provider package per platform. It copies only by a tar on its
+standard input or output, as a nerdctl in a VM must, which sees no path of this host."""
 
 import base64
 import importlib.machinery
 import re
 import importlib.util
+import io
 import json
 import os
 import shutil
 import stat
 import sys
+import tarfile
 import tempfile
 import textwrap
 import unittest
@@ -30,7 +33,7 @@ _loader.exec_module(infra)
 
 FAKE_ENGINE = textwrap.dedent("""\
     #!/usr/bin/env python3
-    import json, os, shutil, sys, uuid
+    import json, os, shutil, sys, tarfile, uuid
     state = os.environ["FAKE_ENGINE"]
     args = sys.argv[1:]
     with open(os.path.join(state, "calls.jsonl"), "a") as f:
@@ -47,14 +50,17 @@ FAKE_ENGINE = textwrap.dedent("""\
         print(cid)
     elif args[0] == "cp":
         src, dst = args[1], args[2]
-        if ":" in src and not src.startswith("/"):
-            path = local(src)
-            if os.path.isdir(path):
-                shutil.copytree(path, dst)
-            else:
-                shutil.copyfile(path, dst)
+        if src == "-":
+            with tarfile.open(fileobj=sys.stdin.buffer, mode="r|") as tar:
+                for m in tar:
+                    assert m.uid == 0 and m.gid == 0, m.name + " is not root's"
+                    tar.extract(m, local(dst))
+        elif dst == "-" and os.path.lexists(local(src)):
+            with tarfile.open(fileobj=sys.stdout.buffer, mode="w|") as tar:
+                tar.add(local(src), arcname=os.path.basename(src))
         else:
-            shutil.copytree(src.rstrip("."), local(dst), dirs_exist_ok=True)
+            sys.stderr.write("unable to copy: source does not exist")
+            sys.exit(1)
     elif args[0] == "start":
         cid = args[-1]
         work = os.path.join(root(cid), "m")
@@ -271,6 +277,35 @@ class PluginTest(unittest.TestCase):
             (self.engine / "calls.jsonl").unlink()
             infra.push(self.module, "registry.example.com/stacks/random:1")
         self.assertTrue(all("funcd-addons/opentofu:check" in c for c in self.engine_calls() if c[0] == "create"))
+
+    def test_a_copy_the_engine_refuses_fails_with_its_words(self):
+        with self.assertRaisesRegex(infra.InfraError, "docker cp failed: unable to copy: source does not exist"):
+            infra.Engine()._copy_out("gone", "x", self.module / "x")
+
+    def test_unpack_takes_plain_files_and_folders_inside_its_target(self):
+        def tar_of(*members):
+            f = io.BytesIO()
+            with tarfile.open(fileobj=f, mode="w") as tar:
+                for name, kind in members:
+                    m = tarfile.TarInfo(name)
+                    m.type = kind
+                    m.mode = 0o640
+                    body = b"" if kind != tarfile.REGTYPE else b"x"
+                    m.size = len(body)
+                    m.linkname = "/etc/passwd" if kind == tarfile.SYMTYPE else ""
+                    tar.addfile(m, io.BytesIO(body))
+            f.seek(0)
+            return tarfile.open(fileobj=f)
+
+        into = self.module / "out"
+        infra.unpack(tar_of(("p", tarfile.DIRTYPE), ("p/a/b.zip", tarfile.REGTYPE)), into)
+        self.assertEqual((into / "a" / "b.zip").read_bytes(), b"x")
+        self.assertEqual(stat.S_IMODE((into / "a" / "b.zip").stat().st_mode), 0o640)
+        for members in ((("p", tarfile.DIRTYPE), ("p/../../x", tarfile.REGTYPE)), (("/p/x", tarfile.REGTYPE),),
+                        (("p", tarfile.DIRTYPE), ("p/link", tarfile.SYMTYPE))):
+            with self.assertRaisesRegex(infra.InfraError, "no plain file or folder"):
+                infra.unpack(tar_of(*members), self.module / "refused")
+            self.assertFalse((self.module.parent / "x").exists())
 
     def test_the_engine_is_docker_else_nerdctl(self):
         os.rename(self.bin / "docker", self.bin / "nerdctl")

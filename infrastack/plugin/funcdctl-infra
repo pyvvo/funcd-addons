@@ -9,7 +9,7 @@
       Print each output of an InfraStack from the Secret its Job owns, a sensitive one as (sensitive) (funcd ADR-0356).
 
 It runs OpenTofu in the add-on's runtime image, the one its Addon pins, or the one INFRASTACK_OPENTOFU_IMAGE names, on
-the first of docker and nerdctl on PATH, copying files in and out with no bind mount, and reaches funcd only through
+the first of docker and nerdctl on PATH, streaming files in and out with no bind mount, and reaches funcd only through
 $FUNCDCTL. It needs Python 3.9 or later and nothing outside its standard library.
 """
 
@@ -24,8 +24,9 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 # The Addon's opentofu1 image (funcd ADR-0355 Decision 1); the release stamps it from the Addon it ships beside.
 IMAGE = "ghcr.io/pyvvo/funcd-opentofu@sha256:7840e234607a768a5a7f4276c929f9688fa0d3c9002552d27eac284b293ac0a1"
@@ -219,11 +220,35 @@ class Engine:
             raise InfraError("neither docker nor nerdctl is on PATH: the push runs OpenTofu in the add-on's image")
         self.image = os.environ.get(IMAGE_ENV) or IMAGE
 
-    def _do(self, *args: str) -> str:
-        run = subprocess.run([self.binary, *args], capture_output=True, text=True)  # noqa: S603 - the engine found on PATH
+    def _do(self, *args: str, stdin=None, stdout=subprocess.PIPE) -> str:
+        run = subprocess.run([self.binary, *args], stdin=stdin, stdout=stdout,  # noqa: S603 - the engine found on PATH
+                             stderr=subprocess.PIPE)
         if run.returncode != 0:
-            raise InfraError(f"{Path(self.binary).name} {args[0]} failed: {(run.stderr or run.stdout).strip()}")
-        return run.stdout
+            said = (run.stderr or run.stdout or b"").decode(errors="replace").strip()
+            raise InfraError(f"{Path(self.binary).name} {args[0]} failed: {said}")
+        return (run.stdout or b"").decode()
+
+    def _copy_in(self, cid: str, folder: Path) -> None:
+        """Copy folder to the container's WORKDIR as a tar on the engine's standard input: a nerdctl in a VM, as colima's,
+        sees no path of this host."""
+        def owned_by_root(member: tarfile.TarInfo) -> tarfile.TarInfo:
+            member.uid = member.gid = 0
+            member.uname = member.gname = ""
+            return member
+
+        with tempfile.TemporaryFile() as f:
+            with tarfile.open(fileobj=f, mode="w") as tar:
+                tar.add(folder, arcname=WORKDIR.lstrip("/"), filter=owned_by_root)
+            f.seek(0)
+            self._do("cp", "-", f"{cid}:/", stdin=f)
+
+    def _copy_out(self, cid: str, path: str, into: Path) -> None:
+        """Copy path of the container's WORKDIR to into, from the tar the engine writes on its standard output."""
+        with tempfile.TemporaryFile() as f:
+            self._do("cp", f"{cid}:{WORKDIR}/{path}", "-", stdout=f)
+            f.seek(0)
+            with tarfile.open(fileobj=f) as tar:
+                unpack(tar, into)
 
     def tofu(self, folder: Path, commands: list, fetch: str | None = None, into: Path | None = None) -> list:
         """Run OpenTofu's commands in turn in a container of the image, on a copy of folder, and return what each
@@ -232,15 +257,32 @@ class Engine:
                        "-e", "CHECKPOINT_DISABLE=1", "-e", "HOME=/tmp", self.image, "-c", DRIVER,
                        json.dumps(commands)).strip()
         try:
-            self._do("cp", f"{folder}/.", f"{cid}:{WORKDIR}")
+            self._copy_in(cid, folder)
             run = subprocess.run([self.binary, "start", "-a", cid], capture_output=True, text=True)  # noqa: S603
             if run.returncode != 0:
                 raise InfraError((run.stderr or run.stdout).strip())
             if fetch:
-                self._do("cp", f"{cid}:{WORKDIR}/{fetch}", str(into))
+                self._copy_out(cid, fetch, into)
             return json.loads(run.stdout)
         finally:
             subprocess.run([self.binary, "rm", "-f", cid], capture_output=True)  # noqa: S603
+
+
+def unpack(tar: tarfile.TarFile, into: Path) -> None:
+    """Write the one file or folder that tar holds to into: plain files and folders, each inside into."""
+    for member in tar:
+        name = PurePosixPath(member.name)
+        inside = name.parts[1:]
+        if name.is_absolute() or ".." in name.parts or not (member.isdir() or member.isfile()):
+            raise InfraError(f"the container's {member.name} is no plain file or folder of what was asked")
+        at = into.joinpath(*inside)
+        if member.isdir():
+            at.mkdir(parents=True, exist_ok=True)
+            continue
+        at.parent.mkdir(parents=True, exist_ok=True)
+        with tar.extractfile(member) as src, at.open("wb") as dst:
+            shutil.copyfileobj(src, dst)
+        at.chmod(member.mode & 0o777)
 
 
 def shown_tree(engine: Engine, stage: Path) -> dict:
