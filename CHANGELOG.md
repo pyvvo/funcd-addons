@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.8.0](https://github.com/pyvvo/funcd-addons/compare/v0.7.0...v0.8.0) (2026-11-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* **addons:** rauthy's and InfraStack's kinds bring their Functions as images ([#30](https://github.com/pyvvo/funcd-addons/issues/30))
+
+### Features
+
+* **addons:** rauthy's and InfraStack's kinds bring their Functions as images ([#30](https://github.com/pyvvo/funcd-addons/issues/30)) ([140dd91](https://github.com/pyvvo/funcd-addons/commit/140dd911446f37d99eb8fe333f8be376296bc496))
+
+
+### Bug Fixes
+
+* **addons:** the Functions that only funcd calls have no address ([#28](https://github.com/pyvvo/funcd-addons/issues/28)) ([9656d70](https://github.com/pyvvo/funcd-addons/commit/9656d700daef508f0d054d7caf47ab6f36104e1a))
+
 ## [0.7.0](https://github.com/pyvvo/funcd-addons/compare/v0.6.1...v0.7.0) (2026-11-24)
 
 
