@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/pyvvo/funcd-addons/compare/v0.8.0...v0.8.1) (2026-11-25)
+
+
+### Bug Fixes
+
+* **infrastack:** the OpenTofu image carries the shim that reaches funcd under funcdctl dev ([#32](https://github.com/pyvvo/funcd-addons/issues/32)) ([1b8d93c](https://github.com/pyvvo/funcd-addons/commit/1b8d93c56692561894a0e449309f49ea61df8d26))
+
 ## [0.8.0](https://github.com/pyvvo/funcd-addons/compare/v0.7.0...v0.8.0) (2026-11-25)
 
 
