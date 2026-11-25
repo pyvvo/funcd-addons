@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.2](https://github.com/pyvvo/funcd-addons/compare/v0.8.1...v0.8.2) (2026-11-25)
+
+
+### Bug Fixes
+
+* **infrastack:** the InfraStack Addon and funcdctl-infra pin the OpenTofu image that v0.8.1 published ([#34](https://github.com/pyvvo/funcd-addons/issues/34)) ([7c0d721](https://github.com/pyvvo/funcd-addons/commit/7c0d72191aef7224ecaaf3498baee2a123e01f8d))
+
 ## [0.8.1](https://github.com/pyvvo/funcd-addons/compare/v0.8.0...v0.8.1) (2026-11-25)
 
 
