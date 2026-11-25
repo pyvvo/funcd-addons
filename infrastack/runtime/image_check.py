@@ -1,7 +1,8 @@
 """The OpenTofu runtime image's check: inside the image, the runtime's own handler plans, applies and destroys the
 example random-stack module against an S3 server, as a stack's runs do, with a context that stands in for funcd's.
 It also runs a module that carries its own providers, as funcdctl infra push packs them (funcd ADR-0355 Decision 4),
-one whose provider package matches no hash of its lock file, and a plan run (Decision 5).
+one whose provider package matches no hash of its lock file, and a plan run (Decision 5). And the image's shim reads a
+run's approval from funcd's local API at FUNCD_INVOKE_URL, as a worker does under funcdctl dev (funcd ADR-0346).
 
 image_test.sh runs it on an internal Docker network that reaches only versitygw, the S3 engine of funcd's gateway, so a
 run that would download anything fails. versitygw serves the bucket from a folder that this check also reads, so a
@@ -11,12 +12,14 @@ saved plan sits beside the state, and a stale lock is planted there as an interr
 import datetime
 import hashlib
 import hmac
+import http.server
 import json
 import os
 import platform
 import shutil
 import subprocess
 import sys
+import threading
 import urllib.error
 import urllib.request
 import uuid
@@ -26,6 +29,7 @@ from pathlib import Path
 sys.path.insert(0, "/opt/infrastack")
 
 import handler  # noqa: E402 - the image's handler, on the path set above
+from funcd_shim.job import read_approval  # noqa: E402 - the image's shim
 
 BUCKET = os.environ["CHECK_BUCKET"]
 PREFIX = "random-stack"
@@ -102,6 +106,33 @@ def run(name: str, action: str, secret: Secret) -> tuple[dict, dict]:
     doc = handler.preview(Context(name, secret), event(action))
     approval = {"approved_by": "check", "digest": "sha256:" + "0" * 64, "preview": doc}
     return doc, handler.handle(Context(name, secret, approval), event(action))
+
+
+class LocalAPI(http.server.BaseHTTPRequestHandler):
+    """funcd's local API of a worker in a container: a run's approval, for the worker's token only."""
+
+    approval = {"approvedBy": "check", "digest": "sha256:" + "0" * 64, "preview": {"add": 1}}
+
+    def do_GET(self) -> None:  # noqa: N802 - the base class's name
+        ok = self.path == "/job/run" and self.headers.get("X-Funcd-Invoke-Token") == "check-token"
+        self.send_response(200 if ok else 403)
+        self.end_headers()
+        self.wfile.write(json.dumps({"approval": self.approval} if ok else {"detail": "refused"}).encode())
+
+    def log_message(self, *args: object) -> None:
+        """Keep the server's request lines out of the check's output."""
+
+
+def dev_approval() -> dict | None:
+    """The approval that the image's shim reads from a local API at FUNCD_INVOKE_URL, with no socket."""
+    server = http.server.HTTPServer(("127.0.0.1", 0), LocalAPI)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    os.environ.update(FUNCD_INVOKE_URL=f"http://127.0.0.1:{server.server_port}", FUNCD_INVOKE_TOKEN="check-token")
+    try:
+        return read_approval()
+    finally:
+        del os.environ["FUNCD_INVOKE_URL"], os.environ["FUNCD_INVOKE_TOKEN"]
+        server.shutdown()
 
 
 def create_bucket() -> None:
@@ -198,6 +229,10 @@ def check(cond: bool, what: str) -> None:
 
 
 def main() -> None:
+    got = dev_approval()
+    check(got == {"approved_by": "check", "digest": LocalAPI.approval["digest"], "preview": {"add": 1}},
+          f"the shim reads the approval at FUNCD_INVOKE_URL, with its token: {got}")
+
     create_bucket()
     secret = Secret({"INFRASTACK_STATE_PASSPHRASE": os.environ.get("CHECK_PASSPHRASE", "")})
     doc, result = run("random-stack-1", "apply", secret)

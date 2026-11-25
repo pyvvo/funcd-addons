@@ -1,7 +1,7 @@
 {
   "shim": {
     "module": "github.com/pyvvo/funcd-python",
-    "version": "v0.30.0"
+    "version": "v0.31.0"
   },
   "tofu": {
     "version": "1.13.9",
