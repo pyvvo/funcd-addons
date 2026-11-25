@@ -28,7 +28,7 @@ import tempfile
 from pathlib import Path
 
 # The Addon's opentofu1 image (funcd ADR-0355 Decision 1); the release stamps it from the Addon it ships beside.
-IMAGE = "ghcr.io/pyvvo/funcd-opentofu@sha256:ea7f035a7deb67fd5b301b70f95af069369fc84994d714fbc2e3bad9a1771b91"
+IMAGE = "ghcr.io/pyvvo/funcd-opentofu@sha256:7840e234607a768a5a7f4276c929f9688fa0d3c9002552d27eac284b293ac0a1"
 IMAGE_ENV = "INFRASTACK_OPENTOFU_IMAGE"
 ENGINES = ("docker", "nerdctl")
 RUNTIME = "opentofu1"
