@@ -3,14 +3,21 @@
 default:
     @just --list
 
-# check the manifests and the READMEs, build and test the plugins, and test the InfraStack handler and reconciler
+# check the manifests, the READMEs and the conventions, build and test the plugins, and test the InfraStack handler and
+# reconciler
 ci:
     test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
     python3 scripts/readme-check.py
-    go vet ./...
+    python3 -B -m unittest scripts/lint_test.py
+    just lint
     go test -race ./...
     just test-infrastack
     node --test 'rauthy/**/*.test.mjs'
+
+# check the conventions of CLAUDE.md's Rules on every tracked file, or on files: golangci-lint, yamllint, ruff and
+# eslint, then scripts/lint.py's own checks of hygiene, quoting and the plugins' layout
+lint *files:
+    python3 scripts/lint.py {{files}}
 
 # test the InfraStack add-on's OpenTofu handler, with a stand-in for OpenTofu, and its reconciler Function; `go test`
 # tests its funcdctl plugin

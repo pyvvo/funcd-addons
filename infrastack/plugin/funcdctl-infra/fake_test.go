@@ -12,6 +12,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -94,7 +95,7 @@ func fakeEngine(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 func extract(tr *tar.Reader, into string) error {
 	for {
 		h, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return nil
 		}
 		if err != nil {

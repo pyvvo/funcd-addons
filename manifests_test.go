@@ -36,9 +36,10 @@ func (f function) check(t *testing.T, file, kind string) {
 	}
 }
 
-// TestManifests decodes every add-on's YAML: each document is block style, an Addon pins each runtime's image and each
-// kind's by digest, but for an Engineless entry, which runs none, and names the kind its Engine or Engineless entry runs
-// (funcd ADR-0344, ADR-0345), and every other document is of a funcd kind or of a kind an Addon here registers.
+// TestManifests decodes every add-on's YAML: an Addon pins each runtime's image and each kind's by digest, but for an
+// Engineless entry, which runs none, and names the kind its Engine or Engineless entry runs (funcd ADR-0344,
+// ADR-0345), and every other document is of a funcd kind or of a kind an Addon here registers. `just lint` checks
+// that every YAML file is block style.
 func TestManifests(t *testing.T) {
 	t.Parallel()
 	type doc struct {
@@ -62,7 +63,9 @@ func TestManifests(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		defer f.Close()
+		defer func() {
+			_ = f.Close()
+		}()
 		dec := yaml.NewDecoder(f)
 		for {
 			var n yaml.Node
@@ -79,9 +82,6 @@ func TestManifests(t *testing.T) {
 	}
 	kinds := map[string]bool{}
 	for _, d := range docs {
-		if flow := flowNode(d.node); flow != nil {
-			t.Errorf("%s:%d: flow style; write it in block style", d.file, flow.Line)
-		}
 		var m struct {
 			Kind string `yaml:"kind"`
 			Spec struct {
@@ -156,17 +156,4 @@ func TestManifests(t *testing.T) {
 func templatePart(file string) bool {
 	parts := strings.Split(filepath.ToSlash(file), "/")
 	return len(parts) >= 3 && parts[1] == "app" && (len(parts) == 3 && parts[2] == "app.yaml" || parts[2] == "resources")
-}
-
-// flowNode is the first flow-style mapping or sequence under n that holds something; {} and [] are allowed.
-func flowNode(n *yaml.Node) *yaml.Node {
-	if (n.Kind == yaml.MappingNode || n.Kind == yaml.SequenceNode) && n.Style&yaml.FlowStyle != 0 && len(n.Content) > 0 {
-		return n
-	}
-	for _, c := range n.Content {
-		if f := flowNode(c); f != nil {
-			return f
-		}
-	}
-	return nil
 }

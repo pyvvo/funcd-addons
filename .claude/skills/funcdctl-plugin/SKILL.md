@@ -31,6 +31,6 @@ A plugin is one Go command, `<addon>/plugin/funcdctl-<addon>/`, that funcdctl ru
    The README's `## The plugin` section links the page, under `.claude/rules/readme.md`.
 6. **Build it for each platform**: `nix develop -c just plugins <goos> <goarch>` writes `dist/<goos>-<goarch>/`. A
    value that a release stamps into the plugin comes from a `stamp.go` beside it, as funcdctl-infra's image does.
-   Then `nix develop -c just ci`.
+   Then `nix develop -c just lint`, which checks the plugin rule of `CLAUDE.md`, and `nix develop -c just ci`.
 7. **Release it**: a conventional PR title (`feat(<addon>): …`, `feat!` when an install step changes). On a release,
    `.github/workflows/release.yml` attaches `funcdctl-<addon>-<os>-<arch>.tar.gz` for Linux and macOS.

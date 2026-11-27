@@ -232,7 +232,7 @@ func unpack(tr *tar.Reader, into string) error {
 			return err
 		}
 		parts := pathParts(h.Name)
-		if strings.HasPrefix(h.Name, "/") || containsDotDot(parts) || !(isFolder(h) || isFile(h)) {
+		if strings.HasPrefix(h.Name, "/") || containsDotDot(parts) || !isFolder(h) && !isFile(h) {
 			return fmt.Errorf("the container's %s is no plain file or folder of what was asked", h.Name)
 		}
 		at := filepath.Join(append([]string{into}, parts[min(1, len(parts)):]...)...)

@@ -1,0 +1,47 @@
+# The Go lint of the plugin kit, the plugins and the manifest tests, modeled on funcd's .golangci.yml. Of funcd's
+# linters, gochecknoglobals is left out, since a plugin's commands, its stamped image and its fixed lists are package
+# values, and forbidigo too, since its bans fit funcd's daemon, which logs through slog, while a plugin prints its
+# output. depguard keeps funcd's shape with this repository's own rule.
+version: "2"
+
+linters:
+  enable:
+    - govet
+    - staticcheck
+    - errcheck
+    - ineffassign
+    - misspell
+    - gochecknoinits
+    - depguard
+    - errorlint
+  settings:
+    errcheck:
+      # A print to the terminal, or to a fake's buffer, that fails has no one left to tell.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+    depguard:
+      rules:
+        # A plugin's binary carries only the kit's runtime: the fakes and the reference check, and cobra/doc with the
+        # markdown engine it links, are for tests.
+        tests-only:
+          list-mode: original
+          files:
+            - $all
+            - "!**/*_test.go"
+            - "!**/internal/pluginkit/plugintest/**"
+          deny:
+            - pkg: github.com/pyvvo/funcd-addons/internal/pluginkit/plugintest
+              desc: only a plugin's tests import plugintest
+            - pkg: github.com/spf13/cobra/doc
+              desc: only plugintest writes the reference, so a plugin's binary links no markdown engine
+
+run:
+  timeout: 5m
+  # Parallel worktrees lint on one host; the default host-wide lock fails a second run after 5 s.
+  allow-parallel-runners: true
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

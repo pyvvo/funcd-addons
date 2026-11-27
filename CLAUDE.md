@@ -24,6 +24,9 @@ decides on its own: a new field or behavior needs a funcd ADR first.
 - A plugin is one Go command under `<addon>/plugin/funcdctl-<addon>/`, built on `internal/pluginkit`, with its tests;
   it reaches funcd through `$FUNCDCTL`, else `funcdctl` on PATH. The `funcdctl-plugin` skill adds a plugin or a
   command, and `just plugin-docs` writes its reference into `<addon>/docs/plugin.md`.
+- An import is at the top of its module, never inside a function.
+- `just lint` checks these rules, and that no file holds a machine's path or a personal email: golangci-lint, yamllint,
+  ruff, eslint and `scripts/lint.py`. `just ci` and the pre-commit hook run it.
 - Run the toolchain through the flake: `nix develop -c just ci`, `nix develop -c just e2e`.
 - PR titles and commits are conventional (`feat(rauthy): …`): the queue squashes with the title, and release-please
   reads it.
