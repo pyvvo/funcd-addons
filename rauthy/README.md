@@ -3,8 +3,7 @@
 [rauthy](https://github.com/sebadob/rauthy) as a funcd add-on: an OpenID Connect provider, run from the image that
 [pyvvo/funcd-rauthy](https://github.com/pyvvo/funcd-rauthy) builds with funcd's look. The add-on adds the kind
 `IdentityProvider`: funcd runs one rauthy per object, serves it at the object's host under `/auth/v1` and copies its
-data into the namespace's backups. funcd signs an App's users in through rauthy, with a client that it registers
-itself.
+data into the namespace's backups. funcd signs an App's users in through it.
 
 With the add-on [registered](#register-the-add-on), these commands declare an identity provider and print its URLs:
 
@@ -19,7 +18,7 @@ funcdctl rauthy urls login -n default
 The server's `addons.registries` must list `ghcr.io`. An admin applies [`addon.yaml`](app/addon.yaml) from a release:
 
 ```sh
-curl -fsSL https://github.com/pyvvo/funcd-addons/releases/download/v0.1.0/rauthy.yaml | funcdctl apply -f -
+curl -fsSL https://github.com/pyvvo/funcd-addons/releases/download/v0.9.0/rauthy.yaml | funcdctl apply -f -
 ```
 
 The Addon ships one runtime, `rauthy`, whose workload is `Engine`, and sets these rauthy settings:
@@ -50,7 +49,7 @@ The edge serves the object at its `ingress.host`. `deletion: delete` removes its
 
 An [`OIDCProvider`](examples/oidcprovider.yaml) with `client.registration` has funcd register the edge's client at
 rauthy. Its `addon` names the IdentityProvider, so funcd reaches rauthy at rauthy's own address: the edge never serves
-the registration path, `/auth/v1/clients_dyn`. Its `issuer` is rauthy's own, with the trailing slash that
+the registration path, `/auth/v1/clients_dyn`. Its `issuer` is rauthy's, with the trailing slash that
 `funcdctl rauthy urls` prints, such as `https://login.example.com/auth/v1/`.
 
 A Route, a workload's address or a namespace with `auth.mode: oidc` and `auth.provider: <name>` then signs its callers
@@ -60,9 +59,9 @@ in. The code behind it reads who they are from the `X-Funcd-Principal` headers.
 
 The settings kind `RauthyPasswordPolicy` holds the password policy of one IdentityProvider, which its `provider`
 names. It runs no engine. funcd sends each IdentityProvider's policy to the settings Function, which puts it into
-rauthy through its binding of the IdentityProvider, and sends it again at each resync, so a policy changed at rauthy's
-own API is put back. Deleting the object puts rauthy's default back. A provider holds one policy, and `lengthMin` may
-not exceed `lengthMax`.
+rauthy through its binding, and sends it again at each resync, so a policy changed at rauthy's own API is put back.
+Deleting the object puts rauthy's default back. A provider holds one policy, and `lengthMin` may not exceed
+`lengthMax`.
 
 ```sh
 funcdctl apply -f examples/passwordpolicy.yaml
@@ -70,7 +69,7 @@ funcdctl get rauthypasswordpolicys -n default
 ```
 
 The settings Function, [`settings/rauthy-settings.mjs`](settings/rauthy-settings.mjs), has the kind's schema as its
-contract. A release publishes it as `ghcr.io/pyvvo/funcd-rauthy-settings`, which the Addon names by its digest.
+contract. A release publishes it as `ghcr.io/pyvvo/funcd-rauthy-settings`, which the Addon pins by digest.
 funcd [creates the Function](https://github.com/pyvvo/funcd/blob/main/docs/adr/0358-an-add-on-kinds-function-comes-from-an-image-and-its-contract-is-the-kinds-schema.md)
 `<identityprovider>-rauthypasswordpolicy` once a policy names the IdentityProvider, and an IdentityProvider may name
 its own Function in `spec.functions`. The Function signs in to rauthy with the API key `settings`, which
@@ -78,7 +77,7 @@ its own Function in `spec.functions`. The Function signs in to rauthy with the A
 
 ## Back up and restore
 
-rauthy writes a copy of its data every 15 minutes (`HQL_BACKUP_CRON`), and a BackupSchedule with `scope.addons` copies
+rauthy writes a copy of its data every 15 minutes, and a BackupSchedule with `scope.addons` copies
 the newest one. A Restore of an IdentityProvider is in place only: funcd restarts rauthy with the copy, then again
 without it, and holds the namespace meanwhile.
 
@@ -100,7 +99,8 @@ go install github.com/pyvvo/funcd-addons/rauthy/plugin/funcdctl-rauthy@latest
 
 [`app/`](app/) is an App template that carries the Addon. An admin's `funcdctl app deploy` registers or updates the
 Addon, then deploys an App that holds an IdentityProvider `<app>-login`. A developer's deploy needs the kind
-registered already. The values are `host` and `https`, and `keys`, the Secret that `funcdctl rauthy keys` writes:
+registered already. The values are `host`, `https`, `keys`, the Secret that `funcdctl rauthy keys` writes, and
+`publicHost`, the host that callers reach rauthy at, which defaults to empty, meaning `host`:
 
 ```sh
 funcdctl push --template app <registry>/rauthy:0.2.0

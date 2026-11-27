@@ -17,7 +17,7 @@ An admin pipes the add-on's `addon.yaml`, which pins each runtime's image by dig
 `funcdctl apply -f -`:
 
 ```sh
-curl -fsSL https://github.com/pyvvo/funcd-addons/releases/download/v0.3.0/rauthy.yaml | funcdctl apply -f -
+curl -fsSL https://github.com/pyvvo/funcd-addons/releases/download/v0.9.0/rauthy.yaml | funcdctl apply -f -
 ```
 
 funcd accepts an image only from the registries in its `addons.registries` key. Each add-on's README shows its

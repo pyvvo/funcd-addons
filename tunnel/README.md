@@ -78,6 +78,6 @@ its index digest. The tunnel was checked on 2026-11-24:
 
 - On Docker, a call to a local frps with the tunnel's `host` reached a stand-in edge with the Host header rewritten to
   `hostRewrite`. `/healthz` answered 200, and frpc, started before frps, connected 2 s after frps came up.
-- On containerd with egress on, in funcd's `addon-frp-bunny` lane, a Tunnel whose token came from an InfraStack's
-  outputs Secret dialed an frps in the VM. A Function of the Tunnel's namespace answered a call to frps with the
-  tunnel's host, through funcd's edge on the bridge address.
+- On containerd with egress on, in this repository's [`addon-frp-bunny`](../e2e/lanes.yaml) lane, a Tunnel whose
+  token came from an InfraStack's outputs Secret dialed an frps in the VM. A Function of the Tunnel's namespace
+  answered a call to frps with the tunnel's host, through funcd's edge on the bridge address.

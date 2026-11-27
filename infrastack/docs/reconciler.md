@@ -22,8 +22,11 @@ so each reason below is a `Ready False`, drift included.
 | Reason | When |
 |---|---|
 | `Queued`, `Planning`, `Applying` | The run of the stack's generation has not ended |
-| `AwaitingApproval` | The run, or a drift check, waits for a person's approval; the message holds its `funcdctl job approve` line |
+| `Destroying` | The destroy run of a deleting stack has not ended, and awaits no approval |
+| `AwaitingApproval` | The run, the destroy run or a drift check waits for a person's approval; the message holds its `funcdctl job approve` line |
 | `ApplyFailed`, `ApplyRejected`, `ApplyCancelled` | The run ended without success |
+| `DestroyFailed`, `DestroyRejected`, `DestroyCancelled` | The destroy run ended without success |
+| `RunReadFailed` | A deleting stack could not read the run of its generation, so its destroy has not started; the message holds the error |
 | `JobNotBound`, `JobNotFound`, `InvalidVariables`, `RunNameTaken`, `InputTooLarge`, `RunStartFailed` | funcd refused the run's start |
 | `ConfigInvalid` | `config.drift` holds no cron of the grammar below, and the message names why |
 | `Drifted` | The last ended drift check found a change; the message names the run, its counts and its first five addresses |
