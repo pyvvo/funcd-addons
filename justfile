@@ -3,9 +3,10 @@
 default:
     @just --list
 
-# check the manifests, build and test the plugins, and test the InfraStack handler and reconciler
+# check the manifests and the READMEs, build and test the plugins, and test the InfraStack handler and reconciler
 ci:
     test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+    python3 scripts/readme-check.py
     go vet ./...
     go test -race ./...
     just test-infrastack

@@ -138,7 +138,8 @@ func TestManifests(t *testing.T) {
 			Kind string `yaml:"kind"`
 		}
 		_ = d.node.Decode(&m)
-		if templatePart(d.file) {
+		// scripts/ holds the README template, which is no manifest of a kind either.
+		if templatePart(d.file) || strings.HasPrefix(filepath.ToSlash(d.file), "scripts/") {
 			continue
 		}
 		if !kinds[m.Kind] && !slices.Contains(funcdKinds, m.Kind) {
