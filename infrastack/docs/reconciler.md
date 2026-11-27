@@ -41,7 +41,7 @@ shows `ConfigInvalid`, naming why.
 
 - **The check**: at the latest due time since the apply ended, the reconciler starts a run with `action: plan`,
   named `<stack>-c<generation>-<YYYYMMDDHHMM>-<uid>` after that time, so a call sent again starts nothing new. The
-  run applies nothing and answers what would change, as ADR-0355 Decision 5 has a plan run do.
+  run applies nothing and answers what would change.
 - **One at a time**: a due time that comes while the latest check has not ended starts none, and a due time missed
   while funcd was down starts one check, late. A call finds the latest check by reading back over at most the 100 due
   times before the one it is at. So a check that has not ended 100 due times after its own holds the next one no
