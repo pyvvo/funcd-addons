@@ -1,0 +1,14 @@
+# The YAML lint of `just lint`. Block style is the repository's rule: no flow mapping or sequence but {} and [].
+extends: default
+rules:
+  braces:
+    forbid: non-empty
+  brackets:
+    forbid: non-empty
+  # A value such as a lane's description or a workflow's run line stays on one line.
+  line-length: disable
+  # The repository's YAML starts with its first key, with no ---.
+  document-start: disable
+  # GitHub's workflows key their triggers with on.
+  truthy:
+    check-keys: false

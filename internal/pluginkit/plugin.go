@@ -17,8 +17,9 @@ import (
 )
 
 // A plugin's help and its generated reference list its commands in the order its Plugin declares them, the order a
-// user takes them in, not by name.
-func init() {
+// user takes them in, not by name. cobra keeps that order in a package variable, which only an init sets before any
+// command, or any parallel test, reads it.
+func init() { //nolint:gochecknoinits // cobra's command order is a package variable
 	cobra.EnableCommandSorting = false
 }
 

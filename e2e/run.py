@@ -714,7 +714,7 @@ def main() -> int:
         _, logs = f259_backup()
         check("F259: each restore start loads the copy: the SIGTERM stop leaves no crash marker",
               "moving into its final place" in logs and "Cannot remove old data dir" not in logs,
-              "; ".join(l.split("hiqlite::backup")[-1][:120] for l in logs.splitlines() if "Starting database restore" in l)[:300])
+              "; ".join(line.split("hiqlite::backup")[-1][:120] for line in logs.splitlines() if "Starting database restore" in line)[:300])
         data = f262_register()
         f261_signin(password)
         f262_keep(data, password)

@@ -1,5 +1,5 @@
 # Git hooks, installed by the dev shell (`nix develop`). `just ci` runs the same checks, so a commit that passes here
-# does not fail there on its Go formatting or its README.
+# does not fail there on its Go formatting, its README or the conventions that `just lint` checks.
 pre-commit:
   commands:
     gofmt:
@@ -9,3 +9,5 @@ pre-commit:
     readme:
       glob: "*README.md"
       run: python3 scripts/readme-check.py {staged_files}
+    lint:
+      run: python3 scripts/lint.py {staged_files}

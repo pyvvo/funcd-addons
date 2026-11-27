@@ -13,7 +13,8 @@
       pkgs = import nixpkgs { inherit system; };
     in {
       # go builds the plugins and funcdctl for the e2e; node 22 runs the e2e's probe Function under funcdctl dev,
-      # python 3.14 its harness, docker-client talks to the runner's Docker, and lefthook runs the git hooks
+      # python 3.14 its harness, docker-client talks to the runner's Docker, and lefthook runs the git hooks.
+      # golangci-lint, yamllint, ruff and eslint are the linters of `just lint`, pinned by flake.lock.
       default = pkgs.mkShellNoCC {
         packages = with pkgs; [
           go
@@ -23,6 +24,10 @@
           python314
           docker-client
           lefthook
+          golangci-lint
+          yamllint
+          ruff
+          eslint
         ];
         # installs the git hooks from lefthook.yml; idempotent
         shellHook = ''
