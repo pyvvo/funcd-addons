@@ -113,6 +113,8 @@ FAKE_FUNCDCTL = textwrap.dedent("""\
             sys.stderr.write("funcdctl: sdk: store.Get: " + key + " not found\\n")
             sys.exit(1)
         print(json.dumps(objects[key]))
+    elif args[:2] == ["job", "runs"]:
+        print(json.dumps(json.load(open(os.path.join(state, "runs.json")))))
     """)
 
 # The contract of a module with the string variable prefix and the plain output name, as funcd ADR-0355's Contracts
@@ -229,6 +231,14 @@ class PluginTest(unittest.TestCase):
 
     def objects(self, **objects):
         (self.funcd / "objects.json").write_text(json.dumps(objects), encoding="utf-8")
+
+    def awaiting(self, *names):
+        (self.funcd / "runs.json").write_text(json.dumps([{"metadata": {"name": n}} for n in names]), encoding="utf-8")
+
+    def stack(self, reason, message):
+        self.objects(**{"infrastack/edge": {"spec": {"bindings": {"job": [{"alias": "stack", "job": "edge"}]}},
+                                            "status": {"conditions": [{"type": "Ready", "status": "False",
+                                                                       "reason": reason, "message": message}]}}})
 
     # scenario: infra-push-builds-index
     def test_scenario_infra_push_builds_index(self):
@@ -452,6 +462,33 @@ class PluginTest(unittest.TestCase):
         self.assertEqual(json.loads(said.call_args.args[0]),
                          {"outputs": {"host": "a.b-cdn.net"}, "sensitive": ["FRP_TOKEN", "extra"]})
         self.assertNotIn("s3cret", said.call_args.args[0])
+
+    def test_approve_approves_the_run_that_the_stack_names(self):
+        """Of the Job's runs that await approval, approve hands funcdctl job approve the one the stack's Ready condition
+        names, so an older generation's run that still waits is never approved by mistake."""
+        self.stack("AwaitingApproval", "run edge-g2-abcd1234, which applies edge, awaits approval: "
+                                       "funcdctl job approve edge-g2-abcd1234")
+        self.awaiting("edge-g1-abcd1234", "edge-g2-abcd1234")
+        self.assertEqual(infra.main(["approve", "edge", "-n", "team-a"]), 0)
+        self.assertEqual([c["args"] for c in self.funcd_calls()], [
+            ["get", "infrastack", "edge", "-n", "team-a", "-o", "json"],
+            ["job", "runs", "edge", "-n", "team-a", "--phase", "AwaitingApproval", "-o", "json"],
+            ["job", "approve", "edge-g2-abcd1234", "-n", "team-a"]])
+
+    def test_approve_refuses_a_stack_that_awaits_no_approval(self):
+        self.stack("Planning", "run edge-g1-abcd1234 plans its change")
+        with self.assertRaisesRegex(infra.InfraError,
+                                    "the InfraStack default/edge awaits no approval: run edge-g1-abcd1234 plans its change"):
+            infra.approve("edge", "default")
+        self.assertNotIn("approve", [c["args"][1] for c in self.funcd_calls() if c["args"][0] == "job"])
+
+    def test_approve_refuses_when_the_named_run_no_longer_awaits(self):
+        self.stack("AwaitingApproval", "run edge-d3-abcd1234, which destroys edge, awaits approval: "
+                                       "funcdctl job approve edge-d3-abcd1234")
+        self.awaiting("edge-g2-abcd1234")
+        with self.assertRaisesRegex(infra.InfraError, "names no run that awaits approval"):
+            infra.approve("edge", "default")
+        self.assertNotIn("approve", [c["args"][1] for c in self.funcd_calls() if c["args"][0] == "job"])
 
     def test_outputs_needs_the_job_bound_as_stack(self):
         self.objects(**{"infrastack/edge": {"spec": {"bindings": {"job": [{"alias": "other", "job": "edge"}]}}}})

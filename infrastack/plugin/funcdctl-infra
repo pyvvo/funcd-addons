@@ -7,6 +7,9 @@
       <ref>@<digest> (funcd ADR-0355).
   funcdctl infra outputs <stack> [-n <namespace>] [-o json]
       Print each output of an InfraStack from the Secret its Job owns, a sensitive one as (sensitive) (funcd ADR-0356).
+  funcdctl infra approve <stack> [-n <namespace>]
+      Show the plan of the run that an InfraStack waits on, the apply run of its generation or, while it is deleting,
+      its destroy run, and approve it once a person confirms.
 
 It runs OpenTofu in the add-on's runtime image, the one its Addon pins, or the one INFRASTACK_OPENTOFU_IMAGE names, on
 the first of docker and nerdctl on PATH, streaming files in and out with no bind mount, and reaches funcd only through
@@ -366,14 +369,20 @@ def get(kind: str, name: str, namespace: str) -> dict:
     return json.loads(call_funcdctl("get", kind, name, "-n", namespace, "-o", "json"))
 
 
-def outputs(stack: str, namespace: str) -> dict:
-    """Each key of the stack's outputs Secret, with its value when the Job's contract names it among its plain outputs,
-    else (sensitive) (funcd ADR-0356 Decision 8)."""
-    st = get("infrastack", stack, namespace)
+def stack_job(st: dict, stack: str, namespace: str) -> str:
+    """The Job that the stack binds as stack, which runs its module."""
     bound = ((st.get("spec") or {}).get("bindings") or {}).get("job") or []
     job_name = next((b["job"] for b in bound if b.get("alias") == STACK_JOB), None)
     if not job_name:
         raise InfraError(f"the InfraStack {namespace}/{stack} binds no Job as {STACK_JOB}")
+    return job_name
+
+
+def outputs(stack: str, namespace: str) -> dict:
+    """Each key of the stack's outputs Secret, with its value when the Job's contract names it among its plain outputs,
+    else (sensitive) (funcd ADR-0356 Decision 8)."""
+    st = get("infrastack", stack, namespace)
+    job_name = stack_job(st, stack, namespace)
     job = get("job", job_name, namespace)
     output = ((job.get("status") or {}).get("contract") or {}).get("output") or {}
     plain = set((((output.get("properties") or {}).get("outputs") or {}).get("properties") or {}))
@@ -386,6 +395,30 @@ def outputs(stack: str, namespace: str) -> dict:
     data = (get("secret", secret, namespace).get("spec") or {}).get("data") or {}
     shown = {key: base64.b64decode(data[key]).decode() for key in sorted(data) if key in plain}
     return shown, [key for key in sorted(data) if key not in plain]
+
+
+def awaited_run(stack: str, namespace: str) -> str:
+    """The run that the stack waits on. While it waits for an approval, the reconciler names that run in the stack's
+    Ready condition, so the stack itself says which of its Job's runs to approve, whatever other run awaits one."""
+    st = get("infrastack", stack, namespace)
+    ready = next((c for c in (st.get("status") or {}).get("conditions") or [] if c.get("type") == "Ready"), {})
+    message = ready.get("message") or ""
+    if ready.get("reason") != "AwaitingApproval":
+        raise InfraError(f"the InfraStack {namespace}/{stack} awaits no approval" + (f": {message}" if message else ""))
+    runs = json.loads(call_funcdctl("job", "runs", stack_job(st, stack, namespace), "-n", namespace,
+                                    "--phase", "AwaitingApproval", "-o", "json")) or []
+    words = set(re.findall(r"[a-z0-9-]+", message))
+    named = [r["metadata"]["name"] for r in runs if r["metadata"]["name"] in words]
+    if len(named) != 1:
+        raise InfraError(f"the InfraStack {namespace}/{stack} names no run that awaits approval: {message}")
+    return named[0]
+
+
+def approve(stack: str, namespace: str) -> int:
+    """Approve the run that the stack waits on through funcdctl job approve, which shows the run's plan and asks to
+    confirm on the terminal it inherits, so a person approves exactly the change the stack would make."""
+    run = awaited_run(stack, namespace)
+    return subprocess.run([funcdctl(), "job", "approve", run, "-n", namespace]).returncode  # noqa: S603 - funcdctl, as ADR-0319 runs plugins
 
 
 def outputs_table(shown: dict, sensitive: list) -> str:
@@ -406,10 +439,15 @@ def main(argv: list) -> int:
     o.add_argument("stack")
     o.add_argument("-n", "--namespace", default="default")
     o.add_argument("-o", "--output", choices=["json"])
+    a = sub.add_parser("approve", help="show the plan of the run that an InfraStack waits on, and approve it once confirmed")
+    a.add_argument("stack")
+    a.add_argument("-n", "--namespace", default="default")
     args = parser.parse_args(argv)
     try:
         if args.command == "push":
             print(push(Path(args.module), args.ref))
+        elif args.command == "approve":
+            return approve(args.stack, args.namespace)
         else:
             shown, sensitive = outputs(args.stack, args.namespace)
             if args.output == "json":
