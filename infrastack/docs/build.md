@@ -22,10 +22,18 @@ infrastack/
 │   │   └── main.tf
 │   └── token-stack.yaml
 ├── plugin/
-│   ├── funcdctl-infra
-│   ├── plugin_test.py
-│   ├── push_check.py
-│   └── stamp.py
+│   └── funcdctl-infra/
+│       ├── commands.go
+│       ├── contract.go
+│       ├── engine.go
+│       ├── fake_test.go
+│       ├── input.go
+│       ├── main.go
+│       ├── plugin_test.go
+│       ├── push.go
+│       ├── push_check_test.go
+│       ├── stack.go
+│       └── stamp.go
 ├── reconciler/
 │   ├── infrastack-reconciler.contract.yaml
 │   ├── infrastack-reconciler.mjs
@@ -51,7 +59,8 @@ carries its own packed providers, with the image's folder out of reach, one whos
 its lock file, and a plan run.
 
 `infra-push-check` pushes a module with a local child through the plugin into an OCI layout, and reads back the
-index, the contract and each platform's packages. CI runs both checks.
+index, the contract and each platform's packages. CI runs both checks. `just ci` tests the plugin itself with a fake
+container engine and a fake funcdctl, which record what the plugin runs.
 
 ## Releases
 

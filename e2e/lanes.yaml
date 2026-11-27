@@ -105,12 +105,14 @@ addon-infrastack:
   # The add-on's files are this repository's, at the commit under test. The build makes the OpenTofu runtime's image
   # from infrastack/runtime with the add-on's own recipe, run at FUNCD_LANES_ROOT, and the shim its pins.json names, so
   # the runs and the plugin use the runtime under test whatever image the Addon pins; funcd's e2e/laneregistry serves it
-  # in the VM, and the reconciler's image, which the suite pushes there, at the digest that the Addon pins. The build writes opentofu.tar into the lane's dir, so the lane builds in a writable copy of
-  # infrastack/examples, inside funcd's checkout.
+  # in the VM, and the reconciler's image, which the suite pushes there, at the digest that the Addon pins. The build
+  # also makes the plugins for Linux on the host's architecture, which is the VM's. It writes opentofu.tar and the
+  # plugins into the lane's dir, so the lane builds in a writable copy of infrastack/examples, inside funcd's checkout.
   dir: infrastack/examples
   copy: true
   build:
     - here=$PWD && cd "$FUNCD_LANES_ROOT" && just opentofu-image "" funcd-lane/opentofu:lane && docker save funcd-lane/opentofu:lane | gzip -1n > "$here/opentofu.tar"
+    - here=$PWD && cd "$FUNCD_LANES_ROOT" && just plugins linux "" "$here"
   stage:
     - random-stack
     - random-stack.yaml
@@ -120,10 +122,9 @@ addon-infrastack:
     - token-stack
     - token-stack.yaml
     - opentofu.tar
+    - funcdctl-infra
     - from: infrastack/app/addon.yaml
       to: addon.yaml
-    - from: infrastack/plugin/funcdctl-infra
-      to: funcdctl-infra
     - from: infrastack/reconciler/infrastack-reconciler.mjs
       to: infrastack-reconciler.mjs
     - from: infrastack/reconciler/infrastack-reconciler.contract.yaml

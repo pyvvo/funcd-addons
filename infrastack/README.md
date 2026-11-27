@@ -74,7 +74,7 @@ none or a new generation applies.
 
 ## The plugin
 
-`funcdctl-infra`, attached to each release, is the add-on's
+`funcdctl-infra`, [attached to each release](docs/plugin.md#install), is the add-on's
 [funcdctl plugin](https://github.com/pyvvo/funcd/tree/main/docs/guide/develop/tools/funcdctl/plugins.md): on PATH,
 `funcdctl infra` runs it. Its [commands](docs/plugin.md) push a module, print a stack's outputs and approve a stack's
 run.

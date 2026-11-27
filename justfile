@@ -12,11 +12,10 @@ ci:
     just test-infrastack
     node --test 'rauthy/**/*.test.mjs'
 
-# test the InfraStack add-on's OpenTofu handler, with a stand-in for OpenTofu, its funcdctl plugin, with a stand-in for
-# the container engine and funcdctl, and its reconciler Function
+# test the InfraStack add-on's OpenTofu handler, with a stand-in for OpenTofu, and its reconciler Function; `go test`
+# tests its funcdctl plugin
 test-infrastack:
     python3 -m unittest infrastack/runtime/handler_test.py
-    python3 -B -m unittest infrastack/plugin/plugin_test.py
     node --test 'infrastack/**/*.test.mjs'
 
 # print the folder of the funcd-python module whose shim the OpenTofu runtime carries, at the version pins.json names
@@ -46,23 +45,27 @@ kind-images-check funcdctl="work/bin/funcdctl":
 
 # push a module with a local child through funcdctl-infra, with the image's OpenTofu, into an OCI layout (funcd ADR-0355)
 infra-push-check image="funcd-addons/opentofu:dev" funcdctl="work/bin/funcdctl":
-    INFRASTACK_OPENTOFU_IMAGE={{image}} FUNCDCTL="$(cd "$(dirname {{funcdctl}})" && pwd)/$(basename {{funcdctl}})" python3 infrastack/plugin/push_check.py
+    INFRASTACK_PUSH_CHECK=1 INFRASTACK_OPENTOFU_IMAGE={{image}} FUNCDCTL="$(cd "$(dirname {{funcdctl}})" && pwd)/$(basename {{funcdctl}})" \
+        go test -count=1 -run '^TestPushCheck$' ./infrastack/plugin/funcdctl-infra/
 
-# write funcdctl-infra into out, its IMAGE the opentofu1 image of the Addon it ships beside (funcd ADR-0355 Decision 1)
-infra-plugin out="dist/funcdctl-infra":
-    mkdir -p "$(dirname {{out}})"
-    python3 infrastack/plugin/stamp.py infrastack/app/addon.yaml infrastack/plugin/funcdctl-infra {{out}}
-
-# build each add-on's funcdctl plugin for one platform into dist/<goos>-<goarch>/
-plugins goos="" goarch="":
+# build each add-on's funcdctl plugin for one platform into out, by default dist/<goos>-<goarch>/. A plugin's stamp.go
+# prints the -X flags of its build, as funcdctl-infra's stamps the opentofu1 image of its Addon (funcd ADR-0355 Decision 1).
+plugins goos="" goarch="" out="":
     #!/usr/bin/env bash
     set -euo pipefail
     os={{goos}}; arch={{goarch}}; os=${os:-$(go env GOOS)}; arch=${arch:-$(go env GOARCH)}
-    for d in */plugin/*/; do
-        ls "$d"*.go >/dev/null 2>&1 || continue
-        name=$(basename "$d")
-        GOOS=$os GOARCH=$arch CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o "dist/$os-$arch/$name" "./$d"
+    out={{out}}; out=${out:-dist/$os-$arch}
+    for d in */plugin/funcdctl-*/; do
+        d=${d%/}
+        stamp=""
+        if [ -f "$d/stamp.go" ]; then stamp=$(go run "./$d/stamp.go"); fi
+        GOOS=$os GOARCH=$arch CGO_ENABLED=0 go build -trimpath -ldflags "-s -w $stamp" -o "$out/$(basename "$d")" "./$d"
     done
+
+# write each plugin's command reference into its add-on's docs/plugin.md, between the page's markers, from the
+# plugin's commands; `just ci` fails while one is stale
+plugin-docs:
+    UPDATE_REFERENCE=1 go test -count=1 -run '^TestReference$' ./...
 
 # run each add-on under funcdctl dev on the local Docker, at the funcd of e2e/funcd.ref
 e2e:

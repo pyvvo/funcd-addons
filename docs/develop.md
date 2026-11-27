@@ -13,6 +13,8 @@ The repository's layout, and the lanes that run the add-ons on a real funcd.
 | `<addon>/image/` | The image of the add-on's engine, which each release builds and pushes to GHCR |
 | `<addon>/examples/` | Objects of its kind, and what uses them |
 | `<addon>/plugin/funcdctl-<addon>/` | Its funcdctl plugin, a Go command that each release builds |
+| `<addon>/docs/plugin.md` | Its plugin's commands, with the reference that `just plugin-docs` writes from them |
+| `internal/pluginkit/` | The kit that every plugin is built on, with the fakes and the reference check of its tests |
 | `e2e/` | The end-to-end run: each add-on under `funcdctl dev` on Docker, at the funcd commit that `e2e/funcd.ref` names |
 | `e2e/lanes.yaml`, `e2e/lanes/` | The lanes: each add-on on a real funcd on containerd in a Lima VM, with their Venom suites and fixtures |
 | `go.mod` | This repository is a Go module, which funcd pins by tag |

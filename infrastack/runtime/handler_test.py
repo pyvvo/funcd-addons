@@ -363,7 +363,7 @@ class HandlerTest(unittest.TestCase):
         self.assertIn(f"-plugin-dir={own}", self.call("init")["args"])
         self.assertFalse((self.dir / "work" / "module" / handler.PROVIDERS).exists(), "the work copy leaves it in the module")
 
-    # scenario: infra-local-files-refused (the run's half; the push's half is plugin_test.py's)
+    # scenario: infra-local-files-refused (the run's half; the push's half is plugin/funcdctl-infra/plugin_test.go's)
     def test_scenario_infra_local_files_refused(self):
         """A module pushed by hand with its own variables or state files runs as if they were not there: the work copy
         leaves them out, so a run's variables come only from its input, its ConfigMaps' and Secrets' TF_VAR_ keys and

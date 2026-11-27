@@ -24,6 +24,6 @@ developer who builds and checks it.
    400 for the root one) it warns, and the README passes: move detail out when the README keeps growing. Over the hard
    cap (1200 and 600) it fails, as does a section out of the template's order, a refused heading or a missing required
    section. Then run `nix develop -c just ci`, and check that every relative link resolves.
-6. **Leave the plugin's command reference to the kit.** The funcdctl-plugin kit, which another session is building,
-   generates a plugin's command reference, and its `funcdctl-plugin` skill says how. Never write that reference by
-   hand: until the kit lands, keep the existing one unchanged.
+6. **Leave the plugin's command reference to the kit.** `just plugin-docs` writes it into the add-on's
+   `docs/plugin.md`, from the plugin's commands, as the `funcdctl-plugin` skill says. Never write that reference by
+   hand: the README's `## The plugin` section links the page.
