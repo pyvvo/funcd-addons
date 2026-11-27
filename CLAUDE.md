@@ -21,9 +21,9 @@ decides on its own: a new field or behavior needs a funcd ADR first.
 - An Addon pins each runtime's image by digest; `just ci` refuses a tag.
 - YAML is block style: no `{ key: value }` or `[a, b]`, except `{}` or `[]` for an empty value.
 - An `env` value that holds `: ` inside `${{ }}`, such as a ternary, is single-quoted.
-- A plugin is one Go command under `<addon>/plugin/funcdctl-<addon>/`, with its tests; it reaches funcd through
-  `$FUNCDCTL`. The exception is InfraStack's `infrastack/plugin/funcdctl-infra`, a stdlib Python script, as funcd
-  ADR-0355 Decision 1 decides: it reaches funcd through `$FUNCDCTL`, else `funcdctl` on PATH.
+- A plugin is one Go command under `<addon>/plugin/funcdctl-<addon>/`, built on `internal/pluginkit`, with its tests;
+  it reaches funcd through `$FUNCDCTL`, else `funcdctl` on PATH. The `funcdctl-plugin` skill adds a plugin or a
+  command, and `just plugin-docs` writes its reference into `<addon>/docs/plugin.md`.
 - Run the toolchain through the flake: `nix develop -c just ci`, `nix develop -c just e2e`.
 - PR titles and commits are conventional (`feat(rauthy): …`): the queue squashes with the title, and release-please
   reads it.

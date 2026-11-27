@@ -2,7 +2,7 @@ name: Release
 
 # release-please keeps a release PR open on main. Merging it tags v<version>; then the CI and the e2e run on that tag,
 # and each add-on's app/addon.yaml (as <addon>.yaml) and each plugin, for Linux and macOS, are attached to the release,
-# funcdctl-infra stamped with the opentofu1 image of the Addon beside it, and the add-ons' images are pushed to GHCR for
+# funcdctl-infra built with the opentofu1 image of the Addon beside it, and the add-ons' images are pushed to GHCR for
 # linux/amd64 and linux/arm64, tagged <version>.
 on:
   push:
@@ -66,6 +66,8 @@ jobs:
           extra_nix_config: |
             experimental-features = nix-command flakes
 
+      # Each plugin is one archive per platform; `just plugins` stamps funcdctl-infra with the opentofu1 image of the Addon
+      # it ships beside (funcd ADR-0355 Decision 1).
       - name: Build the plugins and collect the Addons
         run: |
           set -euo pipefail
@@ -78,8 +80,6 @@ jobs:
             if grep -q '@sha256:TODO' "$d"; then echo "skip $d: an image of it is not pinned yet"; continue; fi
             cp "$d" "release/${d%%/*}.yaml"
           done
-          # funcdctl-infra runs OpenTofu in the opentofu1 image of the Addon it ships beside (funcd ADR-0355 Decision 1).
-          if [ -f release/infrastack.yaml ]; then nix develop --command just infra-plugin release/funcdctl-infra; fi
           for f in dist/*/*; do
             tar -czf "release/$(basename "$f")-$(basename "$(dirname "$f")").tar.gz" -C "$(dirname "$f")" "$(basename "$f")"
           done

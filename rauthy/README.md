@@ -33,8 +33,9 @@ The Addon ships one runtime, `rauthy`, whose workload is `Engine`, and sets thes
 
 ## Declare an identity provider
 
-`funcdctl rauthy keys` applies the Secret that an IdentityProvider binds: rauthy's cluster and encryption keys, and a
-first admin. It prints the admin's password once and stores only its argon2id hash.
+[`funcdctl rauthy keys`](docs/plugin.md#funcdctl-rauthy-keys) applies the Secret that an IdentityProvider binds:
+rauthy's cluster and encryption keys, and a first admin. It prints the admin's password once and stores only its
+argon2id hash.
 
 | `spec.config` | What |
 |---|---|
@@ -88,7 +89,7 @@ or `127.0.0.1` hosts: rauthy accepts an http callback on a loopback host only.
 
 ## The plugin
 
-`funcdctl-rauthy` is a [funcdctl plugin](https://github.com/pyvvo/funcd/tree/main/docs/guide/develop/tools/funcdctl/plugins.md).
+[`funcdctl-rauthy`](docs/plugin.md) is a [funcdctl plugin](https://github.com/pyvvo/funcd/tree/main/docs/guide/develop/tools/funcdctl/plugins.md).
 Each release attaches it for Linux and macOS. Put it on PATH, or build it:
 
 ```sh

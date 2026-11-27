@@ -75,7 +75,7 @@ testcases:
             DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends docker.io=20.10.24+dfsg1-1+deb12u1+b6 >/dev/null
             install -m 0755 /opt/lane/funcdctl-infra /usr/local/bin/funcdctl-infra
             docker info >/dev/null
-            echo "ENGINE=$(docker --version) PYTHON=$(python3 --version)"'
+            echo "ENGINE=$(docker --version)"'
         info: "engine → {{.result.systemout}} {{.result.systemerr}}"
         assertions:
           - result.code ShouldEqual 0

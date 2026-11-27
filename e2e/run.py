@@ -267,13 +267,8 @@ def build() -> None:
     else:
         ref = (ROOT / "e2e" / "funcd.ref").read_text().strip()
         subprocess.run(["go", "install", "-tags", "dev", f"github.com/pyvvo/funcd/cmd/funcdctl@{ref}"], check=True, env=env)
-    for d in sorted(ROOT.glob("*/plugin/*/")):
-        if not any(d.glob("*.go")):
-            continue
-        subprocess.run(["go", "build", "-o", str(BIN / d.name), f"./{d.relative_to(ROOT)}"], cwd=ROOT, check=True, env=env)
-    plugin = INFRASTACK / "plugin"
-    subprocess.run(["python3", str(plugin / "stamp.py"), str(INFRASTACK / "app" / "addon.yaml"), str(plugin / "funcdctl-infra"),
-                    str(BIN / "funcdctl-infra")], check=True)
+    # The plugins as a release builds them, funcdctl-infra stamped with its Addon's opentofu1 image.
+    subprocess.run(["just", "plugins", "", "", str(BIN)], cwd=ROOT, check=True, env=env)
 
 
 def addon_manifest() -> Path:
