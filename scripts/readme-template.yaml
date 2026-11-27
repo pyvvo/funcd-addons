@@ -1,0 +1,74 @@
+# The shape of each README of this repository. scripts/readme-check.py holds every README.md to the shape whose
+# paths match it, and to that shape's word budget; .claude/rules/readme.md holds the writing rules, and the
+# addon-readme skill the steps. Like funcd's develop-page template, it fixes outcomes and an order, not a full outline:
+# a section appears only when it explains a real task or behavior of what the folder holds.
+#
+# A shape's first section is the text under the README's `# ` title, before its first `##` heading. Its sections are the
+# `##` headings, in this order. Task sections go where `free` stands, each under a heading that names its task. A
+# required section appears in every README of the shape, and a refused heading in none.
+root:
+  paths:
+    - README.md
+  first:
+    holds: >-
+      What the repository holds and who registers its add-ons, then a table of the add-ons: each one's folder, its
+      kinds and what it is.
+  sections:
+    - heading: Register an add-on
+      required: true
+      holds: >-
+        The command that registers an add-on from a release, and what the server must allow before it.
+    - heading: Develop
+      required: true
+      holds: >-
+        The commands that check, test and run the add-ons, each with what it needs, such as Docker or colima, and links
+        to the layout and the lanes.
+    - heading: Releases
+      required: true
+      holds: >-
+        What a release tags, attaches and publishes, and what pins an Addon's digests before it.
+  refused:
+    - Register one
+    - Layout
+    - Lanes
+addon:
+  paths:
+    - "*/README.md"
+  first:
+    holds: >-
+      What the add-on adds: its kind, what funcd runs for an object of it and what the object is for. Then the
+      smallest working example: the commands that declare one object, or the example file that holds one, and what
+      shows that it works.
+  sections:
+    - heading: Register the add-on
+      required: true
+      holds: >-
+        Who registers the Addon and from where; what the Addon ships, its runtimes and the settings it sets on the
+        engine; and what the server must provide first, such as a registry it accepts, a config key or a gateway.
+    - free: true
+      holds: >-
+        One task of the add-on's object per section, under a heading that names it, such as "Declare an identity
+        provider" or "Check a stack for drift": its spec.config, the Secrets it binds, what funcd and the engine do with
+        it, its data, and how to recover. Reference detail that no task needs goes to a page under the add-on's docs/,
+        linked on the term that needs it.
+    - heading: Status
+      holds: >-
+        The object's reasons and what each one means, with what to do when the reason asks for an action.
+    - heading: The plugin
+      holds: >-
+        The add-on's funcdctl plugin: where it comes from, what it needs, and its commands with their output.
+    - heading: In an App
+      holds: >-
+        How an App template holds an object of the kind, and how the App waits for it.
+    - heading: Build and check
+      holds: >-
+        The add-on's files, the commands that build and check its images and code, what each check covers, and what a
+        release publishes.
+    - heading: Not yet
+      holds: >-
+        What the add-on does not do yet, and what to do instead.
+  refused:
+    - The Addon
+    - Register it
+    - Checked
+    - The image

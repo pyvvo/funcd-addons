@@ -13,7 +13,7 @@
       pkgs = import nixpkgs { inherit system; };
     in {
       # go builds the plugins and funcdctl for the e2e; node 22 runs the e2e's probe Function under funcdctl dev,
-      # python 3.14 its harness, and docker-client talks to the runner's Docker
+      # python 3.14 its harness, docker-client talks to the runner's Docker, and lefthook runs the git hooks
       default = pkgs.mkShellNoCC {
         packages = with pkgs; [
           go
@@ -22,7 +22,12 @@
           nodejs_22
           python314
           docker-client
+          lefthook
         ];
+        # installs the git hooks from lefthook.yml; idempotent
+        shellHook = ''
+          [ -d .git ] && lefthook install >/dev/null 2>&1 || true
+        '';
       };
     });
   };
