@@ -115,6 +115,10 @@ in the image of the Addon's `opentofu1` runtime, which each release stamps into 
   ```
 
   With `-o json` it prints `{"outputs": {"pullzone_host": "frp-lane.b-cdn.net"}, "sensitive": ["FRP_TOKEN"]}`.
+- **`funcdctl infra approve <stack> [-n <namespace>]`** approves the run that the stack waits on: the apply run of its
+  generation or, while the stack is being deleted, its destroy run. It finds the run that the stack's Ready condition
+  names, then runs `funcdctl job approve`, which shows the run's plan and asks to confirm. It refuses a stack that
+  awaits no approval, with the stack's status message.
 
 ## A run
 
