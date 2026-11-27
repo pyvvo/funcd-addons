@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/pyvvo/funcd-addons/compare/v0.8.3...v0.9.0) (2026-11-27)
+
+
+### Features
+
+* **infrastack:** funcdctl infra approve approves the run that a stack waits on ([#38](https://github.com/pyvvo/funcd-addons/issues/38)) ([4da95db](https://github.com/pyvvo/funcd-addons/commit/4da95db24e7b35c85996342af976f45b9692a8d1))
+
 ## [0.8.3](https://github.com/pyvvo/funcd-addons/compare/v0.8.2...v0.8.3) (2026-11-25)
 
 
