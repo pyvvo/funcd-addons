@@ -144,11 +144,13 @@ addon-frp-bunny:
   # The App comes from the funcd-functions module that funcd's go.mod pins, and the add-ons' files from this repository.
   # The build makes the OpenTofu runtime's image with this repository's recipe, as the addon-infrastack lane does, and
   # funcd's e2e/laneregistry serves it in the VM; the Tunnel Addon pulls its image from GHCR by the digest it pins,
-  # unless the lane also stages tunnel.tar. frps is fatedier/frps's binary, by digest.
+  # unless the lane also stages tunnel.tar. frps is fatedier/frps's binary, by digest. The App's page is built with this
+  # repository's node, which funcd's dev shell does not hold.
   module: github.com/pyvvo/funcd-functions
   dir: apps/frp-bunny
   copy: true
   build:
+    - nix develop "$FUNCD_LANES_ROOT" -c bash -c 'cd web && npm ci --no-audit --no-fund && npm run build'
     - id=$(docker create --platform "linux/$(go env GOARCH)" fatedier/frps:v0.72.0@sha256:17abb20dd392557a44070d9726954630c0eb1f7a9bd6ead5ae9150d165179ea4) && docker cp "$id":/usr/bin/frps frps && docker rm "$id"
     - here=$PWD && cd "$FUNCD_LANES_ROOT" && just opentofu-image "" funcd-lane/opentofu:lane && docker save funcd-lane/opentofu:lane | gzip -1n > "$here/opentofu.tar"
   stage:
@@ -156,6 +158,7 @@ addon-frp-bunny:
     - infra/fake
     - hello
     - values/lane.yaml
+    - web/dist
     - frps
     - opentofu.tar
     - from: infrastack/app/addon.yaml
@@ -184,11 +187,16 @@ addon-frp-bunny-live:
   optional: true
   module: github.com/pyvvo/funcd-functions
   dir: apps/frp-bunny
+  # the App's page is built with this repository's node, as in the addon-frp-bunny lane
+  copy: true
+  build:
+    - nix develop "$FUNCD_LANES_ROOT" -c bash -c 'cd web && npm ci --no-audit --no-fund && npm run build'
   stage:
     - app
     - infra/bunny
     - hello
     - values/bunny.yaml
+    - web/dist
     - egress.yaml
     - from: infrastack/app/addon.yaml
       to: opentofu-addon.yaml

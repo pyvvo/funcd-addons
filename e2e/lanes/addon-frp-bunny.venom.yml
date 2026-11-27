@@ -74,6 +74,7 @@ testcases:
             set -e
             funcdctl push infra/fake {{.registry}}/frp-bunny-module:0.1.0 --entry main.tf
             funcdctl push hello/hello.mjs {{.registry}}/frp-bunny-hello:0.1.0
+            funcdctl push --site web/dist {{.registry}}/frp-bunny-web:0.1.0
             funcdctl app lock app -f values/lane.yaml
             funcdctl push --template app {{.registry}}/frp-bunny:0.1.0
             echo PUSHED'
@@ -203,12 +204,14 @@ testcases:
           - result.code ShouldEqual 0
           - result.systemout ShouldContainSubstring FRPS
       # The Tunnel's engine restarts with the token the apply wrote, then frpc logs in to frps and registers the public
-      # host, which may take a few retries of frpc's.
+      # host, which may take a few retries of frpc's. The App's Site serves its page at / and the hello Function answers
+      # at /api, on the one host.
       - type: exec
         script: |
           limactl shell --workdir / {{.vm}} sudo env FUNCD_SERVER=http://127.0.0.1:8080 FUNCD_TOKEN={{.devtoken}} bash -c '
-            out=$(curl -s -m 5 -H "Host: frp-lane.b-cdn.net" http://10.63.0.1:7000/)
-            case "$out" in *"hello from frp-bunny"*) echo "$out"; exit 0;; esac
+            out=$(curl -s -m 5 -H "Host: frp-lane.b-cdn.net" http://10.63.0.1:7000/api)
+            page=$(curl -s -m 5 -H "Host: frp-lane.b-cdn.net" http://10.63.0.1:7000/)
+            case "$out$page" in *"hello from frp-bunny"*"<title>frp-bunny</title>"*) echo "$out PAGE_SERVED"; exit 0;; esac
             echo NOT_YET
             funcdctl get Tunnel frp-tunnel -n default -o json | python3 -c "import sys,json;s=json.load(sys.stdin).get(\"status\",{});print(\"TUNNEL\",s.get(\"phase\"),[(c.get(\"type\"),c.get(\"reason\"),c.get(\"message\",\"\")[:200]) for c in s.get(\"conditions\",[])])"
             funcdctl logs Tunnel/frp-tunnel -n default --limit 12 2>&1 | tail -12'
@@ -218,6 +221,7 @@ testcases:
         assertions:
           - result.code ShouldEqual 0
           - result.systemout ShouldContainSubstring "hello from frp-bunny"
+          - result.systemout ShouldContainSubstring PAGE_SERVED
 
   - name: the App's deletion holds the stack until its approved destroy succeeded, then the App goes
     steps:
