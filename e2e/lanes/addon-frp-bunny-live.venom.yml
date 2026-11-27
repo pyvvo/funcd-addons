@@ -112,6 +112,7 @@ testcases:
               -e "s#^imageRegistry: .*#imageRegistry: {{.bunnyregistry}}#" values/bunny.yaml > values/live.yaml
             funcdctl push infra/bunny {{.registry}}/frp-bunny-module:0.1.0 --entry main.tf
             funcdctl push hello/hello.mjs {{.registry}}/frp-bunny-hello:0.1.0
+            funcdctl push --site web/dist {{.registry}}/frp-bunny-web:0.1.0
             funcdctl app lock app -f values/live.yaml
             funcdctl push --template app {{.registry}}/frp-bunny:0.1.0
             echo PUSHED'
@@ -175,12 +176,14 @@ testcases:
 
   - name: the public name answers through Bunny's pull zone, frps, the Tunnel and the edge
     steps:
-      # Magic Containers starts frps after the apply, and the Tunnel's engine restarts with the token the apply wrote.
+      # Magic Containers starts frps after the apply, and the Tunnel's engine restarts with the token the apply wrote. The
+      # App's Site serves its page at / and the hello Function answers at /api.
       - type: exec
         script: |
           limactl shell --workdir / {{.vm}} sudo env FUNCD_SERVER=http://127.0.0.1:8080 FUNCD_TOKEN={{.devtoken}} bash -c '
-            out=$(curl -s -m 10 https://{{.bunnyname}}.b-cdn.net/)
-            case "$out" in *"hello from frp-bunny"*) echo "$out"; exit 0;; esac
+            out=$(curl -s -m 10 https://{{.bunnyname}}.b-cdn.net/api)
+            page=$(curl -s -m 10 https://{{.bunnyname}}.b-cdn.net/)
+            case "$out$page" in *"hello from frp-bunny"*"<title>frp-bunny</title>"*) echo "$out PAGE_SERVED"; exit 0;; esac
             echo NOT_YET
             funcdctl get Tunnel frp-bunny-tunnel -n default -o json | python3 -c "import sys,json;s=json.load(sys.stdin).get(\"status\",{});print(\"TUNNEL\",s.get(\"phase\"),[(c.get(\"type\"),c.get(\"reason\"),c.get(\"message\",\"\")[:200]) for c in s.get(\"conditions\",[])])"
             funcdctl logs Tunnel/frp-bunny-tunnel -n default --limit 8 2>&1 | tail -8'
@@ -190,6 +193,7 @@ testcases:
         assertions:
           - result.code ShouldEqual 0
           - result.systemout ShouldContainSubstring "hello from frp-bunny"
+          - result.systemout ShouldContainSubstring PAGE_SERVED
       # The edge took the visitor from the X-Real-IP that Bunny set and the Tunnel's engine passed on (ADR-0354): the
       # access log's client is this host's public address as Bunny saw it, neither empty nor the engine's, in the bridge
       # subnet.
