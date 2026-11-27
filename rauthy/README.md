@@ -18,7 +18,7 @@ funcdctl rauthy urls login -n default
 The server's `addons.registries` must list `ghcr.io`. An admin applies [`addon.yaml`](app/addon.yaml) from a release:
 
 ```sh
-curl -fsSL https://github.com/pyvvo/funcd-addons/releases/download/v0.9.0/rauthy.yaml | funcdctl apply -f -
+curl -fsSL https://github.com/pyvvo/funcd-addons/releases/download/v0.10.0/rauthy.yaml | funcdctl apply -f -
 ```
 
 The Addon ships one runtime, `rauthy`, whose workload is `Engine`, and sets these rauthy settings:
