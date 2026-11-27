@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.10.0](https://github.com/pyvvo/funcd-addons/compare/v0.9.0...v0.10.0) (2026-11-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* **plugins:** a release attaches funcdctl-infra as one archive per platform, funcdctl-infra-<os>-<arch>.tar.gz, as it attaches funcdctl-rauthy, instead of one script. The plugin no longer needs Python.
+
+### Features
+
+* **plugins:** the funcdctl plugins share a Go kit, and funcdctl-infra is a Go command ([#41](https://github.com/pyvvo/funcd-addons/issues/41)) ([97a2399](https://github.com/pyvvo/funcd-addons/commit/97a239914acb35ec39753ff5547d51a9d6c72481))
+
 ## [0.9.0](https://github.com/pyvvo/funcd-addons/compare/v0.8.3...v0.9.0) (2026-11-27)
 
 
